@@ -8,7 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
 #ifdef OS9
 #include <unistd.h>
@@ -41,7 +40,6 @@ extern byte prep_data[];     /* preposition list for phrase matching          */
  * list_end_from_len(p)  -- p points at the length byte; returns end pointer,
  *                          sets *content to the first content byte.
  * list_open(p)          -- p points at the tag byte; skips tag+len, returns end.
- * list_skip(p)          -- p points at the length byte (no tag); returns end.
  */
 
 static byte *list_end_from_len(byte *p, byte **content)
@@ -64,10 +62,13 @@ static byte *list_open(byte *p, byte **content_out)
     return list_end_from_len(q, content_out);
 }
 
-/* p points to the length byte (no tag); set *content_out, return end */
-static byte *list_skip(byte *p, byte **content_out)
+/* Open a top-level list container (obj_data/room_data/ccmd_data): skip its
+ * tag+len, return a pointer to its first item and set *base_end to its end. */
+static byte *list_begin(byte *list, byte **base_end)
 {
-    return list_end_from_len(p, content_out);
+    byte *content;
+    *base_end = list_open(list, &content);
+    return content;
 }
 
 /* Search through a sequence of items (p..list_end) for one whose tag==tag.
@@ -106,13 +107,11 @@ static byte *g_var_obj_end;
 static byte  g_noun1_num;
 static byte *g_noun1_data;
 static byte *g_noun1_end;
-static byte  g_noun1_param;       /* loc byte of first noun                   */
 static byte  g_noun1_typed;       /* vocab word# if a noun was typed for slot1 */
 
 static byte  g_noun2_num;
 static byte *g_noun2_data;
 static byte *g_noun2_end;
-static byte  g_noun2_param;
 static byte  g_noun2_typed;       /* vocab word# if a noun was typed for slot2 */
 
 static byte  g_phrase_form;       /* phrase form number                       */
@@ -126,11 +125,6 @@ static byte  g_prep_given;
 static byte  g_adj;
 static byte  g_cmd_targ;
 static byte  g_adj2;
-static byte  g_which_need;
-static byte  g_which_want;
-static byte  g_which_match;
-static byte  g_dis_obj_num;
-static byte  g_dis_loc;
 
 /* ---- text output -------------------------------------------------------- */
 #define LINE_WIDTH  32
@@ -206,14 +200,6 @@ static void print_char(int c)
     /* Accumulate non-space char into word buffer */
     if (g_word_len < WORD_MAX - 1)
         g_word[g_word_len++] = (char)c;
-}
-
-/* Print len bytes of raw ASCII starting at p, then a space */
-static void print_raw(byte *p, int len)
-{
-    while (len-- > 0)
-        print_char(*p++);
-    print_char(' ');
 }
 
 /* Decode and print packed text.
@@ -310,13 +296,10 @@ static int obj_in_cur_room_or_pack(byte num);
  * matching assembly $0822's room-aware noun→object resolution. */
 static byte obj_seq_from_tag(byte tag)
 {
-    byte *p = obj_data;
-    byte *base_end, *base_content;
+    byte *base_end;
+    byte *p = list_begin(obj_data, &base_end);
     byte count = 0;
 
-
-    base_end = list_open(p, &base_content);
-    p = base_content;
     while (p < base_end) {
         byte obj_tag = *p;
         byte *content, *item_end;
@@ -331,14 +314,10 @@ static byte obj_seq_from_tag(byte tag)
 
 static byte *obj_find_by_num(byte num, byte **out_end)
 {
-    byte *p = obj_data;
-    byte *base_end, *base_content;
-    byte count;
+    byte *base_end;
+    byte *p = list_begin(obj_data, &base_end);
+    byte count = num;
 
-    base_end = list_open(p, &base_content);   /* skip outer container tag+len */
-    p = base_content;
-
-    count = num;
     while (p < base_end) {
         byte *content, *item_end;
         item_end = list_open(p, &content);
@@ -359,14 +338,19 @@ static int   g_token_count;
 #define INPUT_LEN 33
 static char  g_input[INPUT_LEN];
 
+/* g_input only ever holds uppercase A-Z, space, or '\0' (read_input filters
+ * everything else out), so a plain range check stands in for isalpha() here
+ * without pulling in ctype.h's lookup table. */
+#define IS_LETTER(c) ((c) >= 'A' && (c) <= 'Z')
+
 /* Try to match the word at g_input[pos] against vocab list p.
  * Returns word number (non-zero) on match; 0 otherwise.
  * Sets *end_pos to position just past the matched word. */
-static int vocab_match_list(byte *p, int pos, int *end_pos)
+static byte vocab_match_list(byte *p, byte pos, byte *end_pos)
 {
     while (*p != 0) {
-        int vlen = *p++;
-        int i, match = 1;
+        byte vlen = *p++;
+        byte i, match = 1;
         for (i = 0; i < vlen; i++) {
             char sc = g_input[pos + i];
             if (sc == '\0' || (byte)sc != p[i]) {
@@ -376,11 +360,11 @@ static int vocab_match_list(byte *p, int pos, int *end_pos)
         }
         if (match) {
             char bc = g_input[pos + vlen];
-            if (bc == '\0' || !isalpha((byte)bc) || vlen >= 6) {
-                int wnum = p[vlen];
+            if (bc == '\0' || !IS_LETTER((byte)bc) || vlen >= 6) {
+                byte wnum = p[vlen];
                 if (end_pos) {
-                    int ep = pos + vlen;
-                    while (g_input[ep] && isalpha((byte)g_input[ep])) ep++;
+                    byte ep = pos + vlen;
+                    while (g_input[ep] && IS_LETTER((byte)g_input[ep])) ep++;
                     *end_pos = ep;
                 }
                 return wnum;
@@ -396,7 +380,7 @@ static int vocab_match_list(byte *p, int pos, int *end_pos)
 static void parse_input(void)
 {
     byte *list_ptrs[5];
-    int  li, pos;
+    byte li, pos;
 
     {
         byte *p = vocab_data;
@@ -405,7 +389,7 @@ static void parse_input(void)
         for (li = 0; li < 4; li++) {
             list_ptrs[li] = p;
             while (*p != 0) {
-                int wlen = *p++;
+                byte wlen = *p++;
                 p += wlen + 1;
             }
             p++;   /* skip $00 terminator */
@@ -417,8 +401,8 @@ static void parse_input(void)
     pos = 0;
 
     while (g_input[pos] != '\0') {
-        int end_pos = pos;
-        int found_type = 0, found_num = 0;
+        byte end_pos = pos;
+        byte found_type = 0, found_num = 0;
 
         while (g_input[pos] == ' ') pos++;
         if (g_input[pos] == '\0') break;
@@ -429,7 +413,7 @@ static void parse_input(void)
         }
 
         for (li = 1; li <= 4; li++) {
-            int wnum = vocab_match_list(list_ptrs[li], pos, &end_pos);
+            byte wnum = vocab_match_list(list_ptrs[li], pos, &end_pos);
             if (wnum) {
                 found_type = li;
                 found_num  = wnum;
@@ -438,15 +422,15 @@ static void parse_input(void)
         }
 
         if (!found_type) {
-            while (g_input[pos] && isalpha((byte)g_input[pos])) pos++;
+            while (g_input[pos] && IS_LETTER((byte)g_input[pos])) pos++;
             continue;
         }
 
         if (g_token_count < MAX_TOKENS) {
-            int tok_pos = g_token_count * 3;
-            g_token_buf[tok_pos + 0] = (byte)found_type;
-            g_token_buf[tok_pos + 1] = (byte)found_num;
-            g_token_buf[tok_pos + 2] = (byte)pos;
+            byte tok_pos = g_token_count * 3;
+            g_token_buf[tok_pos + 0] = found_type;
+            g_token_buf[tok_pos + 1] = found_num;
+            g_token_buf[tok_pos + 2] = pos;
             g_token_count++;
         }
         pos = end_pos;
@@ -503,12 +487,10 @@ static void decode_tokens(void)
  * Returns 1-based sequential index of the single match, 0 if none, 255 if >1. */
 static byte scan_obj_by_mask(byte mask)
 {
-    byte *p = obj_data;
-    byte *base_end, *base_content;
+    byte *base_end;
+    byte *p = list_begin(obj_data, &base_end);
     byte count = 0, found = 0;
 
-    base_end = list_open(p, &base_content);
-    p = base_content;
     while (p < base_end) {
         byte *content, *item_end;
         item_end = list_open(p, &content);
@@ -587,11 +569,8 @@ static int exec_one(byte **pp, byte *end);
  * Returns pointer to room item content; sets *out_end if not NULL. */
 static byte *room_find(byte num, byte **out_end)
 {
-    byte *p = room_data;
-    byte *base_end, *base_content;
-
-    base_end = list_open(p, &base_content);   /* skip outer container tag+len */
-    p = base_content;
+    byte *base_end;
+    byte *p = list_begin(room_data, &base_end);
 
     while (p < base_end) {
         byte tag = *p;
@@ -615,13 +594,22 @@ static void go_room(byte room_num)
     g_cur_room_end  = re;
 }
 
+/* Move the active object to room_num and update its own room byte
+ * (assembly's shared move_ACTIVE_and_look subroutine). */
+static void move_active_to_room(byte room_num)
+{
+    byte *ac = obj_find_by_num(g_active_obj, NULL);
+    go_room(room_num);
+    if (ac) ac[0] = room_num;
+}
+
 /* ---- print room description --------------------------------------------- */
 /* Room content: [flags_byte=0x00][sublists starting with tag=0x03 desc...]
  * Assembly 0D4A-0D92: print room description, then print descriptions of all
  * objects whose loc == CUR_ROOM (using each object's tag=0x03 sublist). */
 static void print_room_desc(void)
 {
-    byte *p, *base_end, *base_content;
+    byte *p, *base_end;
 
     if (g_cur_room_data) {
         byte *rd = g_cur_room_data + 1;   /* skip flags byte */
@@ -632,8 +620,7 @@ static void print_room_desc(void)
     }
 
     /* print descriptions of objects in the current room (assembly 0D65-0D92) */
-    base_end = list_open(obj_data, &base_content);
-    p = base_content;
+    p = list_begin(obj_data, &base_end);
     while (p < base_end) {
         byte *content, *item_end;
         item_end = list_open(p, &content);
@@ -706,11 +693,7 @@ static int obj_owned_by_active(byte *content)
 static int op_go_room_print(byte **pp, byte *end)
 {
     byte room = *(*pp)++;
-    go_room(room);
-    {
-        byte *ac = obj_find_by_num(g_active_obj, NULL);
-        if (ac) ac[0] = room;
-    }
+    move_active_to_room(room);
     if (g_active_obj == g_player_room)
         print_room_desc();
     return 1;
@@ -767,11 +750,8 @@ static int op_cmp_rand(byte **pp, byte *end)
 /* 0x06: PrintInvent -- print all objects carried by player */
 static int op_print_invent(byte **pp, byte *end)
 {
-    byte *p = obj_data;
-    byte *base_end, *base_content;
-
-    base_end = list_open(p, &base_content);
-    p = base_content;
+    byte *base_end;
+    byte *p = list_begin(obj_data, &base_end);
 
     while (p < base_end) {
         byte *content, *item_end;
@@ -840,11 +820,17 @@ static int op_drop_obj(byte **pp, byte *end)
     return 1;
 }
 
+/* Lazily resolve a noun's object content pointer the first time it's needed. */
+static void ensure_noun_data(byte num, byte **pdata, byte **pend)
+{
+    if (!*pdata && num)
+        *pdata = obj_find_by_num(num, pend);
+}
+
 /* 0x11: PrintNoun1Name */
 static int op_print_noun1(byte **pp, byte *end)
 {
-    if (!g_noun1_data && g_noun1_num)
-        g_noun1_data = obj_find_by_num(g_noun1_num, &g_noun1_end);
+    ensure_noun_data(g_noun1_num, &g_noun1_data, &g_noun1_end);
     if (g_noun1_data) print_obj_name(g_noun1_data, g_noun1_end);
     return 1;
 }
@@ -852,8 +838,7 @@ static int op_print_noun1(byte **pp, byte *end)
 /* 0x12: PrintNoun2Name */
 static int op_print_noun2(byte **pp, byte *end)
 {
-    if (!g_noun2_data && g_noun2_num)
-        g_noun2_data = obj_find_by_num(g_noun2_num, &g_noun2_end);
+    ensure_noun_data(g_noun2_num, &g_noun2_data, &g_noun2_end);
     if (g_noun2_data) print_obj_name(g_noun2_data, g_noun2_end);
     return 1;
 }
@@ -944,11 +929,7 @@ static int op_is_varobj_owned_by_active(byte **pp, byte *end)
 static int op_go_room(byte **pp, byte *end)
 {
     byte room = *(*pp)++;
-    go_room(room);
-    {
-        byte *ac = obj_find_by_num(g_active_obj, NULL);
-        if (ac) ac[0] = room;
-    }
+    move_active_to_room(room);
     return 1;
 }
 
@@ -956,8 +937,7 @@ static int op_go_room(byte **pp, byte *end)
 static int op_set_var_noun1(byte **pp, byte *end)
 {
     g_var_obj_num = g_noun1_num;
-    if (!g_noun1_data && g_noun1_num)
-        g_noun1_data = obj_find_by_num(g_noun1_num, &g_noun1_end);
+    ensure_noun_data(g_noun1_num, &g_noun1_data, &g_noun1_end);
     g_var_obj_data = g_noun1_data;
     g_var_obj_end  = g_noun1_end;
     return 1;
@@ -967,8 +947,7 @@ static int op_set_var_noun1(byte **pp, byte *end)
 static int op_set_var_noun2(byte **pp, byte *end)
 {
     g_var_obj_num = g_noun2_num;
-    if (!g_noun2_data && g_noun2_num)
-        g_noun2_data = obj_find_by_num(g_noun2_num, &g_noun2_end);
+    ensure_noun_data(g_noun2_num, &g_noun2_data, &g_noun2_end);
     g_var_obj_data = g_noun2_data;
     g_var_obj_end  = g_noun2_end;
     return 1;
@@ -988,30 +967,38 @@ static int op_set_var_obj(byte **pp, byte *end)
     return 1;
 }
 
+/* Find var_obj's HP sublist (tag 0x09) content; c[1] is the current HP byte.
+ * Sets *obj_end_out to var_obj's item end (needed by callers that also look
+ * up the death script). Returns NULL if var_obj has no HP field. */
+static byte *find_var_obj_hp(byte **obj_end_out)
+{
+    byte *obj_end, *hpptr, *c;
+    if (!g_var_obj_data) return NULL;
+    obj_find_by_num(g_var_obj_num, &obj_end);
+    if (obj_end_out) *obj_end_out = obj_end;
+    hpptr = list_find_tag(g_var_obj_data + 3, obj_end, 0x09, NULL);
+    if (!hpptr) return NULL;
+    list_end_from_len(hpptr, &c);
+    return c;
+}
+
 /* 0x1D: Damage -- subtract [*pp] hitpoints from var_obj */
 static int op_damage(byte **pp, byte *end)
 {
     byte dmg = *(*pp)++;
-    byte *hpptr;
-    if (!g_var_obj_data || !g_var_obj_num) return 0;
-    {
-        byte *obj_end;
-        obj_find_by_num(g_var_obj_num, &obj_end);
-        hpptr = list_find_tag(g_var_obj_data + 3, obj_end, 0x09, NULL);
-        if (hpptr) {
-            byte *c; list_end_from_len(hpptr, &c);
-            if (c[1] >= dmg) c[1] -= dmg; else c[1] = 0;
-            if (c[1] == 0) {
-                byte *ds = list_find_tag(g_var_obj_data + 3, obj_end, 0x0A, NULL);
-                if (ds) {
-                    byte *dc, *de = list_end_from_len(ds, &dc);
-                    exec_script(dc, de);
-                }
-            }
-            return 1;
+    byte *obj_end, *c;
+    if (!g_var_obj_num) return 0;
+    c = find_var_obj_hp(&obj_end);
+    if (!c) return 0;
+    if (c[1] >= dmg) c[1] -= dmg; else c[1] = 0;
+    if (c[1] == 0) {
+        byte *ds = list_find_tag(g_var_obj_data + 3, obj_end, 0x0A, NULL);
+        if (ds) {
+            byte *dc, *de = list_end_from_len(ds, &dc);
+            exec_script(dc, de);
         }
     }
-    return 0;
+    return 1;
 }
 
 /* 0x1E: SwapObjRooms */
@@ -1091,27 +1078,19 @@ static int op_sub_script(byte **pp, byte *end)
 static int op_hp_gt(byte **pp, byte *end)
 {
     byte threshold = *(*pp)++;
-    byte *oe, *hpptr;
-    if (!g_var_obj_data) return 1;
-    obj_find_by_num(g_var_obj_num, &oe);
-    hpptr = list_find_tag(g_var_obj_data + 3, oe, 0x09, NULL);
-    if (!hpptr) return 1;
-    {
-        byte *c; list_end_from_len(hpptr, &c);
-        return (c[1] > threshold) ? 0 : 1;
-    }
+    byte *c = find_var_obj_hp(NULL);
+    if (!c) return 1;
+    return (c[1] > threshold) ? 0 : 1;
 }
 
 /* 0x23: AddHP */
 static int op_add_hp(byte **pp, byte *end)
 {
     byte add = *(*pp)++;
-    byte *oe, *hpptr;
+    byte *c;
     if (!g_var_obj_data) return 0;
-    obj_find_by_num(g_var_obj_num, &oe);
-    hpptr = list_find_tag(g_var_obj_data + 3, oe, 0x09, NULL);
-    if (hpptr) {
-        byte *c; list_end_from_len(hpptr, &c);
+    c = find_var_obj_hp(NULL);
+    if (c) {
         if ((word)c[1] + add > 0xFF) c[1] = 0xFF;
         else c[1] = (byte)(c[1] + add);
     }
@@ -1123,7 +1102,7 @@ static int op_halt(byte **pp, byte *end)
 {
     print_char('\r');
     flush_line();
-    printf("GAME OVER\n");
+    puts("GAME OVER");
     exit(0);
     return 0;
 }
@@ -1141,13 +1120,10 @@ static int op_restart(byte **pp, byte *end)
  * also count double if player is currently in the treasure room. */
 static int op_print_score(byte **pp, byte *end)
 {
-    byte *p = obj_data;
-    byte *base_end, *base_content;
+    byte *base_end;
+    byte *p = list_begin(obj_data, &base_end);
     int score = 0;
     int in_treasure = (g_cur_room == 0x96);
-
-    base_end = list_open(p, &base_content);
-    p = base_content;
 
     while (p < base_end) {
         byte *content, *item_end;
@@ -1226,10 +1202,8 @@ static int exec_one(byte **pp, byte *end)
 
     if (op & 0x80) {
         /* Common command: find in ccmd_data by tag */
-        byte *p = ccmd_data;
-        byte *base_end, *base_content;
-        base_end = list_open(p, &base_content);
-        p = base_content;
+        byte *base_end;
+        byte *p = list_begin(ccmd_data, &base_end);
         while (p < base_end) {
             byte tag = *p;
             byte *content, *item_end;
@@ -1304,8 +1278,10 @@ static int op_dispatch(byte **pp, byte *end)
     return 0;
 }
 
-/* 0x0D: DoList -- AND: stop on first failure; return 1 if ALL items succeed */
-static int op_do_list(byte **pp, byte *end)
+/* Shared body for DoList (AND, stop_on=0) and DoListAll (OR, stop_on=1):
+ * walk the item sublist, short-circuiting as soon as an item's result
+ * equals stop_on; otherwise return the opposite of stop_on. */
+static int op_do_list_common(byte **pp, byte *end, int stop_on)
 {
     byte *p = *pp;
     byte *content;
@@ -1316,26 +1292,21 @@ static int op_do_list(byte **pp, byte *end)
 
     while (item < sub_end) {
         int r = exec_one(&item, sub_end);
-        if (!r) return 0;  /* first failure stops the list */
+        if (r == stop_on) return stop_on;
     }
-    return 1;  /* all items succeeded */
+    return !stop_on;
+}
+
+/* 0x0D: DoList -- AND: stop on first failure; return 1 if ALL items succeed */
+static int op_do_list(byte **pp, byte *end)
+{
+    return op_do_list_common(pp, end, 0);
 }
 
 /* 0x0E: DoListAll -- short-circuit OR: stop on first success */
 static int op_do_list_all(byte **pp, byte *end)
 {
-    byte *p = *pp;
-    byte *content;
-    byte *sub_end = list_end_from_len(p, &content);
-    byte *item = content;
-
-    *pp = sub_end;
-
-    while (item < sub_end) {
-        int r = exec_one(&item, sub_end);
-        if (r) return 1;  /* stop on first success */
-    }
-    return 0;
+    return op_do_list_common(pp, end, 1);
 }
 
 /* ---- turn scripts: run tag=08 script for every object ------------------- */
@@ -1344,12 +1315,9 @@ static int op_do_list_all(byte **pp, byte *end)
  * player_room is saved/restored around this in game_turn. */
 static void run_turn_scripts(byte player_room)
 {
-    byte *p = obj_data;
-    byte *base_end, *base_content;
+    byte *base_end;
+    byte *p = list_begin(obj_data, &base_end);
     byte obj_idx = 0;   /* 1-based sequential index, matches assembly tmp1DO */
-
-    base_end = list_open(p, &base_content);
-    p = base_content;
 
     while (p < base_end) {
         byte *content, *item_end;
@@ -1392,7 +1360,7 @@ static void read_input(void)
 {
     int c, i = 0;
     flush_line();
-    printf("> ");
+    fputs("> ", stdout);
     fflush(stdout);
 
     while (i < INPUT_LEN - 1) {
@@ -1510,7 +1478,8 @@ int main(void)
 {
     game_init();
 
-    printf("RAAKA-TU\n\n");
+    puts("RAAKA-TU");
+    putchar('\n');
 
     print_room_desc();
     flush_line();

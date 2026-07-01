@@ -9,7 +9,7 @@ COCO_SHELF   = $(HOME)/Projects/coco-shelf
 CMOC         = $(COCO_SHELF)/bin/cmoc
 CMOC_OS9_DIR = $(COCO_SHELF)/cmoc_os9
 CMOC_CPP     = --cpp="cpp -Wno-builtin-macro-redefined"
-CMOCFLAGS    = $(CMOC_CPP) --os9 -nodefaultlibs -I$(CMOC_OS9_DIR)/include
+CMOCFLAGS    = $(CMOC_CPP) --os9 -nodefaultlibs -I$(CMOC_OS9_DIR)/include --add-os9-stack-space=16384
 CMOCLFLAGS   = -L$(CMOC_OS9_DIR)/lib -lc
 OS9TARGET    = raakatu
 
@@ -32,10 +32,30 @@ gamedata.o: gamedata.c
 $(OS9TARGET): raakatu.o gamedata.o
 	$(CMOC) $(CMOCFLAGS) -o $@ raakatu.o gamedata.o $(CMOCLFLAGS)
 
+# Local copy of the bootable NitrOS-9 Level 2 CoCo 3 floppy image, built via
+# `make` in ~/Projects/coco-shelf/nitros9/recipes/coco3/floppy and copied
+# here. Not rebuilt by this Makefile -- regenerate it there and re-copy if
+# it's ever missing.
+DSKIMAGE     = l2_coco3.dsk
+OS9COPY      = os9 copy -o=0 -r
+OS9ATTR      = os9 attr -q
+OS9ATTR_EXEC = $(OS9ATTR) -pe -npw -pr -e -w -r
+
+diskcopy: $(OS9TARGET) $(DSKIMAGE)
+	$(OS9COPY) $(OS9TARGET) $(DSKIMAGE),CMDS
+	$(OS9ATTR_EXEC) $(DSKIMAGE),CMDS/$(OS9TARGET)
+
+MAME_BINARY  ?= mame
+MAME_MACHINE ?= coco3
+MAME_FLAGS   ?= -rompath $(MAME_ROM_PATH) -window -nothrottle -skip_gameinfo -autoboot_delay 5 -autoboot_command "DOS\n" -ext fdc -ext:fdc:wd17xx:0 525qd
+
+run: diskcopy
+	$(MAME_BINARY) $(MAME_MACHINE) $(MAME_FLAGS) -flop1 $(DSKIMAGE)
+
 regen-gamedata:
 	python3 extract_data.py
 
 clean:
 	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) *.list *.map
 
-.PHONY: all os9 clean regen-gamedata
+.PHONY: all os9 clean regen-gamedata diskcopy run

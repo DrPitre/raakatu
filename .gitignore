@@ -8,3 +8,4 @@ raakatu.o
 gamedata.o
 *.list
 *.map
+*.dsk
