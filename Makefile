@@ -21,6 +21,11 @@ all: $(TARGET)
 $(TARGET): raakatu.c gamedata.c
 	$(CC) $(CFLAGS) -o $(TARGET) raakatu.c gamedata.c
 
+# Host-only tool: dumps room_data/obj_data/cmd_data/etc as readable
+# pseudocode, for scoping a port to another engine. Not part of the game.
+decompile: decompile.c gamedata.c
+	$(CC) $(CFLAGS) -o decompile decompile.c gamedata.c
+
 os9: $(OS9TARGET)
 
 raakatu.o: raakatu.c
@@ -56,6 +61,6 @@ regen-gamedata:
 	python3 extract_data.py
 
 clean:
-	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) *.list *.map
+	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) *.list *.map decompile decompile.dSYM
 
-.PHONY: all os9 clean regen-gamedata diskcopy run
+.PHONY: all os9 clean regen-gamedata diskcopy run decompile
