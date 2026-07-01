@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#ifdef OS9
+#include <unistd.h>
+#endif
 
 typedef unsigned char  byte;
 typedef unsigned short word;
@@ -45,7 +48,7 @@ static byte *list_end_from_len(byte *p, byte **content)
 {
     word len;
     if (*p & 0x80) {
-        len = (word)((*p & 0x7F) << 8) | *(p+1);
+        len = ((word)(*p & 0x7F) << 8) | *(p+1);
         *content = p + 2;
     } else {
         len = *p;
@@ -976,8 +979,12 @@ static int op_set_var_obj(byte **pp, byte *end)
 {
     byte num = *(*pp)++;
     g_var_obj_num  = num;
-    g_var_obj_data = (num == 0) ? NULL : obj_find_by_num(num, &g_var_obj_end);
-    if (num == 0) g_var_obj_end = NULL;
+    if (num == 0) {
+        g_var_obj_data = NULL;
+        g_var_obj_end  = NULL;
+    } else {
+        g_var_obj_data = obj_find_by_num(num, &g_var_obj_end);
+    }
     return 1;
 }
 
@@ -1054,10 +1061,18 @@ static int op_sub_script(byte **pp, byte *end)
     g_phrase_form = phrase;
     g_noun1_num   = n1;
     g_noun2_num   = n2;
-    g_noun1_data  = n1 ? obj_find_by_num(n1, &g_noun1_end) : NULL;
-    g_noun2_data  = n2 ? obj_find_by_num(n2, &g_noun2_end) : NULL;
-    if (!n1) g_noun1_end = NULL;
-    if (!n2) g_noun2_end = NULL;
+    if (n1) {
+        g_noun1_data = obj_find_by_num(n1, &g_noun1_end);
+    } else {
+        g_noun1_data = NULL;
+        g_noun1_end  = NULL;
+    }
+    if (n2) {
+        g_noun2_data = obj_find_by_num(n2, &g_noun2_end);
+    } else {
+        g_noun2_data = NULL;
+        g_noun2_end  = NULL;
+    }
 
     {
         byte *cc, *ce;

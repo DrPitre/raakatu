@@ -3,3 +3,8 @@ raakatu_test
 *.profraw
 __pycache__/
 *.pyc
+raakatu
+raakatu.o
+gamedata.o
+*.list
+*.map
