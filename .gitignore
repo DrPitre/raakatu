@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 raakatu-host
 raakatu
+raakatu.dsk
 decompile
 raakatu.o
 gamedata.o

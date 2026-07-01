@@ -40,27 +40,31 @@ $(OS9TARGET): raakatu.o gamedata.o
 # Local copy of the bootable NitrOS-9 Level 2 CoCo 3 floppy image, built via
 # `make` in ~/Projects/coco-shelf/nitros9/recipes/coco3/floppy and copied
 # here. Not rebuilt by this Makefile -- regenerate it there and re-copy if
-# it's ever missing.
+# it's ever missing. Treated as a read-only template: diskcopy below copies
+# it to $(BOOTDSK) rather than writing into it directly, so it never shows
+# up dirty in git.
 DSKIMAGE     = l2_coco3.dsk
+BOOTDSK      = $(OS9TARGET).dsk
 OS9COPY      = os9 copy -o=0 -r
 OS9ATTR      = os9 attr -q
 OS9ATTR_EXEC = $(OS9ATTR) -pe -npw -pr -e -w -r
 
 diskcopy: $(OS9TARGET) $(DSKIMAGE)
-	$(OS9COPY) $(OS9TARGET) $(DSKIMAGE),CMDS
-	$(OS9ATTR_EXEC) $(DSKIMAGE),CMDS/$(OS9TARGET)
+	cp $(DSKIMAGE) $(BOOTDSK)
+	$(OS9COPY) $(OS9TARGET) $(BOOTDSK),CMDS
+	$(OS9ATTR_EXEC) $(BOOTDSK),CMDS/$(OS9TARGET)
 
 MAME_BINARY  ?= mame
 MAME_MACHINE ?= coco3
 MAME_FLAGS   ?= -rompath $(MAME_ROM_PATH) -window -nothrottle -skip_gameinfo -autoboot_delay 5 -autoboot_command "DOS\n" -ext fdc -ext:fdc:wd17xx:0 525qd
 
 run: diskcopy
-	$(MAME_BINARY) $(MAME_MACHINE) $(MAME_FLAGS) -flop1 $(DSKIMAGE)
+	$(MAME_BINARY) $(MAME_MACHINE) $(MAME_FLAGS) -flop1 $(BOOTDSK)
 
 regen-gamedata:
 	python3 extract_data.py
 
 clean:
-	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) *.list *.map decompile decompile.dSYM
+	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) *.list *.map decompile decompile.dSYM $(BOOTDSK)
 
 .PHONY: all os9 clean regen-gamedata diskcopy run decompile
