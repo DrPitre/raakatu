@@ -15,7 +15,7 @@ OS9TARGET    = raakatu
 
 all: $(TARGET)
 
-# gamedata.c is checked in and verified against raakatu_gold.asm -- do NOT
+# gamedata.c is checked in and verified against raaka-tu.asm -- do NOT
 # regenerate it from extract_data.py by default. A regen currently produces
 # slightly different room_data bytes than this verified copy (see README).
 $(TARGET): raakatu.c gamedata.c
