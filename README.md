@@ -15,10 +15,12 @@ originally written in 6809 assembly.
 - `raakatu_gold.asm` — an annotated, ground-truth disassembly used as the
   reference when tracing opcode/game-logic behavior. Treated as read-only.
 - `extract_data.py` — parses `raaka-tu.asm` and generates `gamedata.c`.
-  Currently produces slightly different `room_data` bytes than the checked-in,
-  verified `gamedata.c` for one table entry — needs investigation before it's
-  safe to use for regeneration. Run via `make regen-gamedata` if you want to
-  experiment, but don't overwrite the verified copy without diffing carefully.
+  Its output matches `raaka-tu.asm` and `raakatu_gold.asm` byte-for-byte.
+  A prior hand-patched `gamedata.c` had diverged from this at one table
+  entry (room A6's `CLIMB HOLE` guard was dropped) — fixed by regenerating
+  from `extract_data.py` and diffing before committing. Run via
+  `make regen-gamedata` if you want to regenerate, but always diff against
+  the checked-in copy before overwriting it.
 - `test_game.sh` — a minimal smoke-test script.
 
 ## Build
