@@ -298,6 +298,13 @@ static int   g_token_count;
 #define INPUT_LEN 33
 static char  g_input[INPUT_LEN];
 
+#ifdef OS9
+/* cmoc_os9's stdio forces stdout unbuffered the moment it's first touched
+ * (one OS-9 write() syscall per character -- see main()), so give it a real
+ * buffer instead. */
+static char g_stdout_buf[256];
+#endif
+
 /* g_input only ever holds uppercase A-Z, space, or '\0' (read_input filters
  * everything else out), so a plain range check stands in for isalpha() here
  * without pulling in ctype.h's lookup table. */
@@ -1458,6 +1465,19 @@ static void game_turn(void)
 
 int main(void)
 {
+#ifdef OS9
+    /* setbase() special-cases path 1 (stdout) to force it _UNBUF the first
+     * time any stdio call touches it, regardless of what we do beforehand --
+     * so let that happen once here (fflush on a stream with nothing pending
+     * costs one GetStat, no writes), then override the result: reset the
+     * 1-byte fallback size setbase left behind and install a real buffer.
+     * read_input() already fflush()es before blocking on input, so this
+     * doesn't change prompt timing. */
+    fflush(stdout);
+    stdout->_bufsiz = 0;
+    setbuf(stdout, g_stdout_buf);
+#endif
+
     game_init();
 
     puts("RAAKA-TU");
