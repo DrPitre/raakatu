@@ -127,79 +127,39 @@ static byte  g_cmd_targ;
 static byte  g_adj2;
 
 /* ---- text output -------------------------------------------------------- */
-#define LINE_WIDTH  32
-#define WORD_MAX    64
+/* No column wrapping: characters are printed straight through and the
+ * terminal wraps on its own. The source text is uppercase-only (the base-40
+ * packed encoding has no lowercase letters), so this also lowercases
+ * mid-sentence letters on the way out, capitalizing only right after a
+ * sentence boundary (start of output, '.', '!', '?', or a paragraph break). */
 
-static int   g_col;
-static char  g_line[LINE_WIDTH+2];
-static int   g_line_len;
-static char  g_word[WORD_MAX];
-static int   g_word_len;
-
-/* Flush accumulated word to the output line, wrapping if needed */
-static void flush_word(void)
-{
-    int needs_space, fits;
-    if (g_word_len == 0) return;
-    needs_space = (g_line_len > 0) ? 1 : 0;
-    fits = (g_line_len + needs_space + g_word_len <= LINE_WIDTH);
-    if (!fits && g_line_len > 0) {
-        /* Word doesn't fit: flush current line, start fresh */
-        g_line[g_line_len] = '\0';
-        puts(g_line);
-        g_line_len = 0;
-        g_col = 0;
-        needs_space = 0;
-    }
-    if (needs_space) {
-        g_line[g_line_len++] = ' ';
-        g_col++;
-    }
-    memcpy(g_line + g_line_len, g_word, g_word_len);
-    g_line_len += g_word_len;
-    g_col = g_line_len;
-    g_word_len = 0;
-}
+static int g_cap_next = 1;
 
 static void flush_line(void)
 {
-    flush_word();
-    if (g_line_len > 0) {
-        g_line[g_line_len] = '\0';
-        puts(g_line);
-        g_line_len = 0;
-        g_col = 0;
-    }
     putchar('\n');
 }
 
 static void print_char(int c)
 {
     if (c == '\r' || c == '\n') {
-        flush_word();
-        if (g_line_len > 0) {
-            g_line[g_line_len] = '\0';
-            puts(g_line);
-            g_line_len = 0;
-            g_col = 0;
-        } else {
-            putchar('\n');
-        }
-        g_word_len = 0;
+        putchar('\n');
+        g_cap_next = 1;
         return;
     }
 
     if ((byte)c == 0xCF)   /* VDG cursor marker */
         return;
 
-    if (c == ' ' || c == '\t') {
-        flush_word();
+    if (c >= 'A' && c <= 'Z') {
+        putchar(g_cap_next ? c : c - 'A' + 'a');
+        g_cap_next = 0;
         return;
     }
 
-    /* Accumulate non-space char into word buffer */
-    if (g_word_len < WORD_MAX - 1)
-        g_word[g_word_len++] = (char)c;
+    putchar(c);
+    if (c == '.' || c == '!' || c == '?')
+        g_cap_next = 1;
 }
 
 /* Decode and print packed text.
@@ -1402,9 +1362,7 @@ static void game_init(void)
     g_active_obj_end  = NULL;
 
     go_room(0x96);              /* assembly: ldb #$96; stb >$01D5 */
-
-    g_line_len = 0;
-    g_col = 0;
+    g_cap_next = 1;
 }
 
 static void game_turn(void)
