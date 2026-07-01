@@ -852,7 +852,9 @@ static int op_run_obj_scripts(byte **pp, byte *end)
         byte *sc = list_find_tag(rd, g_cur_room_end, 0x04, NULL);
         if (sc) {
             byte *c, *se = list_end_from_len(sc, &c);
-            if (exec_script(c, se)) return 1;
+            int r = exec_script(c, se);
+            if (r == 2) return 2;
+            if (r) return 1;
         }
     }
 
@@ -865,7 +867,9 @@ static int op_run_obj_scripts(byte **pp, byte *end)
             byte *sc = list_find_tag(nd + 3, nd_end, 0x06, NULL);
             if (sc) {
                 byte *c, *se = list_end_from_len(sc, &c);
-                if (exec_script(c, se)) return 1;
+                int r = exec_script(c, se);
+                if (r == 2) return 2;
+                if (r) return 1;
             }
         }
     }
@@ -878,7 +882,9 @@ static int op_run_obj_scripts(byte **pp, byte *end)
             byte *sc = list_find_tag(nd + 3, nd_end, 0x07, NULL);
             if (sc) {
                 byte *c, *se = list_end_from_len(sc, &c);
-                if (exec_script(c, se)) return 1;
+                int r = exec_script(c, se);
+                if (r == 2) return 2;
+                if (r) return 1;
             }
         }
     }
@@ -891,6 +897,7 @@ static int op_run_obj_scripts(byte **pp, byte *end)
 static int op_do_list_not(byte **pp, byte *end)
 {
     int r = exec_one(pp, end);
+    if (r == 2) return 2;
     return r ? 0 : 1;
 }
 
@@ -995,7 +1002,7 @@ static int op_damage(byte **pp, byte *end)
         byte *ds = list_find_tag(g_var_obj_data + 3, obj_end, 0x0A, NULL);
         if (ds) {
             byte *dc, *de = list_end_from_len(ds, &dc);
-            exec_script(dc, de);
+            if (exec_script(dc, de) == 2) return 2;
         }
     }
     return 1;
@@ -1292,6 +1299,7 @@ static int op_do_list_common(byte **pp, byte *end, int stop_on)
 
     while (item < sub_end) {
         int r = exec_one(&item, sub_end);
+        if (r == 2) return 2;
         if (r == stop_on) return stop_on;
     }
     return !stop_on;
@@ -1312,8 +1320,10 @@ static int op_do_list_all(byte **pp, byte *end)
 /* ---- turn scripts: run tag=08 script for every object ------------------- */
 /* Assembly X9: skips objects with room=0 (beq L0FC9).
  * Sets $01D5 to the object's room before running its script (L0FB8: stb >$01D5).
- * player_room is saved/restored around this in game_turn. */
-static void run_turn_scripts(byte player_room)
+ * player_room is saved/restored around this in game_turn.
+ * Returns 1 if a script requested a restart (assembly: JMP $060C aborts
+ * everything unconditionally, so we stop scanning remaining objects). */
+static int run_turn_scripts(byte player_room)
 {
     byte *base_end;
     byte *p = list_begin(obj_data, &base_end);
@@ -1344,13 +1354,14 @@ static void run_turn_scripts(byte player_room)
             g_active_obj      = obj_idx;    /* sequential index, not tag byte */
             g_active_obj_data = content;
             g_active_obj_end  = item_end;
-            exec_script(tc, te);
+            if (exec_script(tc, te) == 2) return 1;
         }
         p = item_end;
     }
     g_active_obj      = g_player_room;
     g_active_obj_data = NULL;
     g_active_obj_end  = NULL;
+    return 0;
 }
 
 /* ---- input reading ------------------------------------------------------ */
@@ -1458,12 +1469,24 @@ static void game_turn(void)
     }
 
     ce = list_open(cmd_data, &cc);
-    exec_script(cc, ce);
+    if (exec_script(cc, ce) == 2) {
+        /* Restart (assembly: JMP $060C re-enters the boot block, which falls
+         * through into the initial PrintRoomDescription call). */
+        game_init();
+        print_room_desc();
+        flush_line();
+        return;
+    }
 
     {
         byte player_room = g_cur_room;
         byte *pd;
-        run_turn_scripts(player_room);
+        if (run_turn_scripts(player_room)) {
+            game_init();
+            print_room_desc();
+            flush_line();
+            return;
+        }
         /* After scripts, player may have been teleported (e.g. after death/restart).
          * Read the player object's actual room instead of the pre-turn snapshot. */
         pd = obj_find_by_num(g_player_room, NULL);
