@@ -1,6 +1,6 @@
 CC      = gcc
 CFLAGS  = -g -O0 -Wall
-TARGET  = raakatu_test
+TARGET  = raakatu-host
 
 # cmoc (6809 C cross-compiler, from ~/Projects/coco-shelf) builds the real
 # NitrOS-9 command binary, as opposed to $(TARGET) above which is a native

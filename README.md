@@ -29,7 +29,7 @@ originally written in 6809 assembly.
 
 ```
 make
-./raakatu_test
+./raakatu-host
 ```
 
 ## Running on OS-9 (MAME)

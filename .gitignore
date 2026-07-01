@@ -1,8 +1,8 @@
-raakatu_test
 *.dSYM/
 *.profraw
 __pycache__/
 *.pyc
+raakatu-host
 raakatu
 raakatu.o
 gamedata.o

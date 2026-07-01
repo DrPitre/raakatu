@@ -1,3 +1,3 @@
 #!/bin/bash
 echo "NORTH
-TAKE TORCH" | ./raakatu_test
+TAKE TORCH" | ./raakatu-host
