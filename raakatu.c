@@ -843,19 +843,29 @@ static int op_print_noun2(byte **pp, byte *end)
     return 1;
 }
 
+/* Find and run the tagged script within a content block, if present.
+ * Returns 0 (no script/failed), 1 (succeeded), or 2 (restart requested). */
+static int try_tagged_script(byte *content, byte *end, byte tag)
+{
+    byte *sc = list_find_tag(content, end, tag, NULL);
+    if (sc) {
+        byte *c, *se = list_end_from_len(sc, &c);
+        int r = exec_script(c, se);
+        if (r == 2) return 2;
+        if (r) return 1;
+    }
+    return 0;
+}
+
 /* 0x13: RunObjScripts -- run room/noun scripts; return 1 if any succeeded */
 static int op_run_obj_scripts(byte **pp, byte *end)
 {
+    int r;
+
     /* 1. Try room script (tag 0x04); skip 1 flags byte in room content */
     if (g_cur_room_data) {
-        byte *rd = g_cur_room_data + 1;  /* +1 skips flags byte */
-        byte *sc = list_find_tag(rd, g_cur_room_end, 0x04, NULL);
-        if (sc) {
-            byte *c, *se = list_end_from_len(sc, &c);
-            int r = exec_script(c, se);
-            if (r == 2) return 2;
-            if (r) return 1;
-        }
+        r = try_tagged_script(g_cur_room_data + 1, g_cur_room_end, 0x04);
+        if (r) return r;
     }
 
     /* 2. Try noun2 object script (tag 0x06 = "COMMAND HANDLING IF SECOND NOUN")
@@ -864,13 +874,8 @@ static int op_run_obj_scripts(byte **pp, byte *end)
         byte *nd_end;
         byte *nd = obj_find_by_num(g_noun2_num, &nd_end);
         if (nd) {
-            byte *sc = list_find_tag(nd + 3, nd_end, 0x06, NULL);
-            if (sc) {
-                byte *c, *se = list_end_from_len(sc, &c);
-                int r = exec_script(c, se);
-                if (r == 2) return 2;
-                if (r) return 1;
-            }
+            r = try_tagged_script(nd + 3, nd_end, 0x06);
+            if (r) return r;
         }
     }
 
@@ -879,13 +884,8 @@ static int op_run_obj_scripts(byte **pp, byte *end)
         byte *nd_end;
         byte *nd = obj_find_by_num(g_noun1_num, &nd_end);
         if (nd) {
-            byte *sc = list_find_tag(nd + 3, nd_end, 0x07, NULL);
-            if (sc) {
-                byte *c, *se = list_end_from_len(sc, &c);
-                int r = exec_script(c, se);
-                if (r == 2) return 2;
-                if (r) return 1;
-            }
+            r = try_tagged_script(nd + 3, nd_end, 0x07);
+            if (r) return r;
         }
     }
 
@@ -1269,6 +1269,7 @@ static int op_dispatch(byte **pp, byte *end)
             byte *test_pp = item;
             int test_result = (test_op < 39) ? optable[test_op](&test_pp, sub_end) : 0;
             item = test_pp;
+            if (test_result == 2) return 2;
 
             {
                 /* Parse action list (skip it regardless) */
