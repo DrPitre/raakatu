@@ -1,3 +1,131 @@
+RAAKA-TU: A Full Playthrough (Score 50/50)
+===========================================
+
+The following is a step-by-step account of a perfect run through
+Raaka-Tu, told as a story. Each paragraph corresponds to a range of
+commands in the numbered command list further below, so you can follow
+along move-by-move if you want to see exactly what triggers what.
+
+You come to with no memory of how you got here, standing in a dense,
+dark, damp jungle. Two cautious steps — north, then west — turn up
+nothing but more of the same suffocating undergrowth. (1-2)
+
+A third step west finally breaks the treeline: through the foliage you
+glimpse the east wall of a great temple, and a patrol of guards
+vanishes around a corner before they spot you. Circling north reveals
+the temple's north wall, magnificent and imposing, and pressing west
+again brings you within sight of the great bronze gates set into its
+western face — engraved with coiling serpents, and, again, guarded.
+(3-5)
+
+You slip east through the gates' approach and find yourself standing
+before the west entrance itself. At your feet, glinting in the
+undergrowth, lies a single coin — you snatch it up before anyone
+notices. (6-7)
+
+Retreating back among the trees, you watch and wait. The temple guard
+marches its patrol in a slow, repeating rhythm — appearing around one
+corner, vanishing around another — and you hold perfectly still,
+watching the pattern cycle again and again, counting the guards' steps
+until you're sure of your moment. (8-21)
+
+The moment comes. You move north along the treeline to the temple's
+north wall and find a great tangle of vines climbing the stone. You
+seize them and climb — but the "roof" you scramble onto is nothing of
+the sort, and it gives way beneath you. You crash down into a small
+granite room, bruised but alive, with a passage east and a jagged hole
+in the ceiling above marking your fall. (22-24)
+
+East leads into a grand rectangular hall floored with an oriental rug
+and dominated by a huge carved wooden door in the east wall; a hole to
+the south drops into a dark, sloping passageway. Following it up and
+south, you emerge at the top of a crossroads — corridors running east
+and west, and the smell of food nearby. West brings you to a small,
+bare room holding nothing but a large sword, which you take without
+hesitation. Backtracking east and pressing on, you pass through a
+T-shaped junction and into a strange triangular room: a stone statue
+brandishing a bow and arrow stands watching an east door, and beneath
+a slot cut into the north wall you find an old inscription. On
+instinct, you feed your coin into the slot — gears groan, and the
+statue slowly pivots to face the west door instead. A path has been
+unlocked. (25-33)
+
+East through the newly favored door brings you to the south end of a
+long, grand hallway. A precious gem lies in plain sight, and you
+pocket it before heading north. At the hallway's north end stands a
+heavy door beneath a stone archway — sealed shut, and your first push
+against it goes nowhere. But working the door directly does the trick:
+it shrieks open on rusted hinges. (34-38)
+
+Beyond it lies a vault. A bejeweled lever juts from one wall beneath a
+mounted plaque — and the moment you step inside, the door slams shut
+behind you, sealing you in. You wrench the lever free anyway, and with
+it in hand you force the door again; this time it grinds open to let
+you out, only to swing shut once more the instant you're back in the
+hallway. (39-42)
+
+You press on west, into a long dark tunnel lit by nothing but a single
+candle and marked overhead with cryptic runes. Deeper still, and
+deeper again, the tunnel finally opens onto a large chamber: a
+blood-stained altar dominates the room, a golden idol gleams at its
+center — and coiled on the floor is a massive serpent, which surges
+up and constricts around you before you can react. (43-46)
+
+A desperate, drawn-out fight follows. Your sword sinks to the hilt in
+the serpent's scaly flank, but its fangs find you and poison burns
+through your veins; you strike again with the same result, poisoned a
+second time. Twice more your blade only throws sparks off the stone
+wall as the serpent lunges and you barely dodge clear. Finally your
+sword connects twice in a row, the second blow proving fatal — the
+serpent goes still. Bloodied but victorious, you claim the golden idol
+from the altar. (47-53)
+
+You retrace your steps back east through both stretches of tunnel,
+through the hallway's north end (door shut fast once more) and south
+end, through the T-junction, and south into a room of grey stone with
+passages leading north and east. East of that lies a round, high-walled
+chamber holding a ring of finest gold. You take it, then — for reasons
+only you know — set it back down, and immediately think better of it
+and pick it up again. Backtracking west, north through the T-junction,
+and east, you arrive in a petite chamber with a larger room to the
+north and a passage west. You linger here a long while, watching and
+waiting as you did outside the temple gates, until the moment feels
+right to move on. (54-78)
+
+North, and the smell of decay hits you before you see anything: a
+charnel room, and perched on a ledge above the north passage, a
+hideous stone gargoyle. The instant you try to press further north, it
+lurches to life and drops to block your path, snapping at your face —
+you pull back just in time, and it sinks its teeth into your shoulder
+instead. You answer with your sword, and by pure luck the blow finds
+its heart; the gargoyle shudders, takes one last breath, and goes
+still. Past its corpse, north again, you find a tall stone chamber
+holding a golden chopstick, which you add to your haul. (79-83)
+
+From here you retrace the long path home: south past the gargoyle's
+carcass, through the petite chamber, the T-junction, the hallway's
+south and north ends (the door stubbornly shut again), and back west
+through both tunnel stretches to the altar room — where the serpent
+now lies still and dead, exactly as you left it. You take a long look
+around, then throw your weight against the altar itself. With great
+effort it grinds aside, revealing a secret passage beneath. You climb
+down into it — and the altar slides back into place above you,
+sealing the way you came. (84-95)
+
+The secret passage leads east to a dead end — but there's a hole in
+the ceiling here too. You climb up through it, and just like the altar,
+the opening seals itself magically behind you the instant you're
+through. You emerge at the temple's south wall, out in a quiet clearing,
+with the great temple looming one last time behind you. A few final
+steps south carry you back into the dense, dark, damp jungle where you
+began — treasure in hand, alive, and free. (96-99)
+
+Checking your score confirms it: out of a possible fifty points, you've
+earned all fifty. A perfect escape from Raaka-Tu. (100)
+
+Full command list
+==================
+
 NORTH
 WEST
 WEST

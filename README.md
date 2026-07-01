@@ -20,6 +20,8 @@ originally written in 6809 assembly.
   `make regen-gamedata` if you want to regenerate, but always diff against
   the checked-in copy before overwriting it.
 - `test_game.sh` — a minimal smoke-test script.
+- `full_playthrough.txt` — a narrated walkthrough achieving the maximum
+  score (50/50), followed by the raw command sequence that produces it.
 - `l2_coco3.dsk` — a bootable NitrOS-9 Level 2 CoCo 3 floppy image, used to
   run the real OS-9 binary under emulation (see below).
 
