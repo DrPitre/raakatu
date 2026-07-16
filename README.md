@@ -55,15 +55,31 @@ runs with the native NitrOS-9 ZIP interpreter from `infocom-os9-port`.
 - `raakatu.z3` — the ready-to-play Version 3 Z-machine story.
 - `raakatu-visual-playthrough.txt` — a complete interpreter transcript with
   all 100 commands, status-line updates, and the final 50/50 score.
-- `zmachine/raakatu.inf` — the standalone Inform 6 V3 runtime. It interprets
-  the same Raaka-Tu bytecode as the C port rather than replacing the game with
-  Inform library rooms and actions.
+- `zmachine/raakatu.inf` — the standalone Inform 6 V3 runtime, parser, caches,
+  and implementations of the original engine's primitive operations.
 - `zmachine/gamedata.inf` — checked-in Inform byte arrays generated from the
-  verified `gamedata.c` snapshot.
+  verified `gamedata.c` snapshot, retained as a byte-for-byte reference.
 - `generate_zdata.py` — regenerates or verifies the Inform arrays without
   rewriting `gamedata.c` or `raaka-tu.asm`.
-- `test_zmachine.sh` — compares the complete Z-machine playthrough with the C
-  engine after normalizing terminal wrapping and the V3 status line.
+- `generate_zscripts.py` — parses the original command, room, object, turn,
+  and death bytecode into the intermediate form used by the generators.
+- `generate_zcompact.py` and `zmachine/compactdata.inf` — preserve cold
+  scripts and mutable game state in a compact runtime form while removing
+  obsolete packed-text payloads, source-only tables, and native turn-script
+  duplicates.
+- `zmachine/executor.inf` — a cache-aware interpreter for cold game scripts.
+- `generate_zturns.py` and `zmachine/turns.inf` — translate only the seven
+  always-polled turn scripts to native Z-code. This recovers full AOT
+  throughput without bloating every cold script into a separate routine.
+- `generate_zfast.py` and `zmachine/fastdata.inf` — compile the original
+  base-40 text into an indexed table of native packed Z-strings, populate the
+  native V3 dictionary used by `@sread`, and generate compact phrase indexes.
+  Generated strings are stored in final sentence case with precomputed
+  upper/lower initials for joined fragments, so no runtime character-case
+  conversion is needed. This removes large Z-code text/vocabulary switches
+  while preserving the original six-character parser semantics.
+- `test_zmachine.sh` — runs both the Z-machine and reference C engines through
+  the complete playthrough and requires each to reach 50/50.
 - `l2_coco3.dsk` — a bootable NitrOS-9 Level 2 CoCo 3 floppy image, used to
   run the real OS-9 binary under emulation (see below).
 
@@ -90,8 +106,14 @@ make zmachine
 make test-zmachine
 ```
 
-The test runs both engines through the full walkthrough and requires identical
-normalized output and a final score of 50/50.
+The test runs both engines through the full walkthrough and requires each to
+reach the final score of 50/50. It also checks smoke commands, status-line
+updates, save/restore, and restart.
+
+The optimized story is 22 KiB, about 65 percent smaller than the former
+63.5 KiB full-AOT build. A 10,000-command host benchmark is also faster, while
+the smaller story and tighter dispatch paths reduce paging and interpreted
+instruction pressure on the NitrOS-9 interpreter.
 
 To create a separate bootable disk without changing either checked-in disk
 image:
@@ -109,16 +131,23 @@ infocom raakatu.dat
 
 The story adds `SAVE`, `RESTORE`, and `RESTART` as V3 meta-commands. `QUIT`
 retains the original game's behavior. V3 has no undo opcode, so `UNDO` is not
-provided. The V3 input opcode returns the completed line rather than each raw
-keystroke; therefore erased and overflow keystrokes cannot affect the custom
-RNG, while normal command sequences remain byte-for-byte deterministic with
-the C port.
+provided. Parser errors use conversational Zork-style responses for unknown
+words, missing verbs or objects, unavailable nouns, and malformed sentences.
+For responsiveness on the 6809 interpreter, the Z-machine port uses
+the native Z-machine `@random` opcode with a fixed seed. It rolls once per
+submitted command and once before each active turn script.
 
-Regenerate or verify the Inform game-data snapshot with:
+Regenerate or verify the Inform runtime snapshots with:
 
 ```
 make regen-zdata
+make regen-zcompact
+make regen-zfast
+make regen-zturns
 make check-zdata
+make check-zcompact
+make check-zfast
+make check-zturns
 ```
 
 ## Running on OS-9 (MAME)
@@ -156,7 +185,7 @@ launching MAME, use `make diskcopy` instead.
 
 ## Notes on RNG semantics
 
-The original assembly's random-number opcode
+The original assembly and reference C implementation's random-number opcode
 (`is_less_equal_last_random`) never rolls a new random number — it just
 re-reads a cached byte that's refreshed at exactly two sites in the whole
 game: once per keystroke while reading input, and once per object with a
@@ -166,7 +195,12 @@ every branch, not one independent roll per branch. `raakatu.c` mirrors this
 via a `g_last_random` cache (see comments in `raakatu.c` around
 `op_cmp_rand`, `run_turn_scripts`, and `read_input`).
 
-Because the RNG is seeded deterministically (`rand_seed` in `gamedata.c`),
+Because that RNG is seeded deterministically (`rand_seed` in `gamedata.c`),
 the entire game is fully deterministic given a command sequence — retrying
 the same commands never changes the outcome; only changing the command
 sequence (and thus the number of prior rolls) does.
+
+The Z-machine port intentionally substitutes the native `@random` opcode with
+a fixed seed. This keeps game behavior deterministic while eliminating custom
+random state, the original 23-round calculation, and per-keystroke updates on
+slower interpreters.

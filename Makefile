@@ -71,19 +71,51 @@ run: diskcopy
 
 zmachine: $(ZTARGET)
 
-$(ZTARGET): zmachine/raakatu.inf zmachine/gamedata.inf
-	$(INFORM) -v3 +include_path=. $< $@
+$(ZTARGET): zmachine/raakatu.inf zmachine/executor.inf zmachine/compactdata.inf \
+	zmachine/fastdata.inf zmachine/turns.inf
+	$(INFORM) -v3 -e +include_path=. $< $@
 
 zmachine/gamedata.inf: gamedata.c generate_zdata.py
 	python3 generate_zdata.py
 
+zmachine/compactdata.inf: gamedata.c generate_zcompact.py generate_zdata.py \
+	generate_zscripts.py
+	python3 generate_zcompact.py
+
+zmachine/fastdata.inf: gamedata.c generate_zfast.py generate_zcompact.py \
+	generate_zdata.py generate_zscripts.py
+	python3 generate_zfast.py
+
+zmachine/turns.inf: gamedata.c generate_zturns.py generate_zcompact.py \
+	generate_zdata.py generate_zscripts.py
+	python3 generate_zturns.py
+
 regen-zdata:
 	python3 generate_zdata.py
+
+regen-zcompact:
+	python3 generate_zcompact.py
+
+regen-zfast:
+	python3 generate_zfast.py
+
+regen-zturns:
+	python3 generate_zturns.py
 
 check-zdata:
 	python3 generate_zdata.py --check
 
-test-zmachine: $(TARGET) $(ZTARGET) check-zdata
+check-zcompact:
+	python3 generate_zcompact.py --check
+
+check-zfast:
+	python3 generate_zfast.py --check
+
+check-zturns:
+	python3 generate_zturns.py --check
+
+test-zmachine: $(TARGET) $(ZTARGET) check-zdata check-zcompact check-zfast \
+	check-zturns
 	ZTERP=$(ZTERP) ./test_zmachine.sh
 
 $(ZDSKIMAGE): $(ZTARGET) $(INFOCOM_OS9_PORT)/zork.dsk $(INFOCOM_OS9_PORT)/infocom
@@ -105,4 +137,5 @@ clean:
 		$(ZDSKIMAGE) *.list *.map decompile decompile.dSYM $(BOOTDSK)
 
 .PHONY: all os9 clean regen-gamedata diskcopy run decompile zmachine regen-zdata \
-	check-zdata test-zmachine zmachine-disk run-zmachine
+	regen-zcompact regen-zfast regen-zturns check-zdata check-zcompact \
+	check-zfast check-zturns test-zmachine zmachine-disk run-zmachine

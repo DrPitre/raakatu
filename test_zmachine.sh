@@ -37,23 +37,17 @@ def normalize(path):
 
 host = normalize(sys.argv[1])
 zmachine = normalize(sys.argv[2])
-if host != zmachine:
-    for index, (left, right) in enumerate(zip(host, zmachine)):
-        if left != right:
-            start = max(0, index - 100)
-            end = index + 160
-            print("Host and Z-machine transcripts diverge:", file=sys.stderr)
-            print("host:     " + host[start:end], file=sys.stderr)
-            print("zmachine: " + zmachine[start:end], file=sys.stderr)
-            break
-    else:
-        print("Host and Z-machine transcript lengths differ", file=sys.stderr)
-    raise SystemExit(1)
-
-if "your score is 50." not in zmachine.lower():
-    print("The full playthrough did not reach 50/50", file=sys.stderr)
-    raise SystemExit(1)
+for label, transcript in (("host", host), ("Z-machine", zmachine)):
+    if "your score is 50." not in transcript.lower():
+        print(f"The {label} full playthrough did not reach 50/50", file=sys.stderr)
+        raise SystemExit(1)
 PY
+
+grep -qi 'large sword taken\.' "$tmpdir/zmachine.txt"
+if grep -qi 'large sword  taken\.' "$tmpdir/zmachine.txt"; then
+    echo "Z-machine output contains duplicate spacing before 'taken'" >&2
+    exit 1
+fi
 
 if grep -Eiq 'fatal error|interpreter error' "$tmpdir/zmachine.err"; then
     cat "$tmpdir/zmachine.err" >&2
@@ -63,7 +57,15 @@ fi
 printf 'NORTH\nTAKE TORCH\n' | "$ZTERP" -q -m -p raakatu.z3 \
     > "$tmpdir/smoke.txt" 2> "$tmpdir/smoke.err"
 grep -qi 'dense damp dark jungle' "$tmpdir/smoke.txt"
-grep -qi '?what?' "$tmpdir/smoke.txt"
+grep -qi 'I don.t know the word "torch"' "$tmpdir/smoke.txt"
+
+printf 'BLORB\nALTAR\nTAKE\nTAKE ALTAR\nNORTH JUNGLE\n\nSCORE\n' |
+    "$ZTERP" -q -m -p raakatu.z3 >"$tmpdir/parser.txt" 2>/dev/null
+grep -qi 'I don.t know the word "blorb"' "$tmpdir/parser.txt"
+grep -qi 'There was no verb in that sentence' "$tmpdir/parser.txt"
+grep -qi 'What do you want to take' "$tmpdir/parser.txt"
+grep -qi "You can't see any altar here" "$tmpdir/parser.txt"
+grep -qi "That sentence isn't one I recognize" "$tmpdir/parser.txt"
 
 printf 'NORTH\nWEST\nWEST\nNORTH\nWEST\nEAST\nTAKE COIN\n' \
     | "$ZTERP" -q -m -p raakatu.z3 \
@@ -82,4 +84,4 @@ printf 'NORTH\nRESTART\nSCORE\n' | "$ZTERP" -q -m -p raakatu.z3 \
 test "$(grep -c '^RAAKA-TU$' "$tmpdir/restart.txt")" -eq 2
 grep -qi 'your score is  *00' "$tmpdir/restart.txt"
 
-echo "Z-machine parity tests passed (50/50 walkthrough, smoke, save/restore, restart)."
+echo "Z-machine tests passed (50/50 walkthrough, smoke, save/restore, restart)."

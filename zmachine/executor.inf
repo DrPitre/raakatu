@@ -1,0 +1,277 @@
+! Compact interpreter for Raaka-Tu's original script bytecode.
+! Hot data lookups are cached by raakatu.inf; keeping scripts as data avoids
+! hundreds of generated Z-code routines and minimizes paged story-file reads.
+
+[ TryTaggedScript content end tag p script_end;
+    p = ListFindTag(content, end, tag);
+    if (p == 0) return 0;
+    script_end = ListEndFromLen(p);
+    return ExecScript(list_content, script_end);
+];
+
+[ RunObjScripts p end r;
+    if (cur_room_data ~= 0) {
+        r = TryTaggedScript(cur_room_data + 1, cur_room_end, 4);
+        if (r ~= 0) return r;
+    }
+    if (noun2_num ~= 0) {
+        p = obj_ptrs-->noun2_num; end = obj_ends-->noun2_num;
+        if (p ~= 0) {
+            r = TryTaggedScript(p + 3, end, 6);
+            if (r ~= 0) return r;
+        }
+    }
+    if (noun1_num ~= 0) {
+        p = obj_ptrs-->noun1_num; end = obj_ends-->noun1_num;
+        if (p ~= 0) {
+            r = TryTaggedScript(p + 3, end, 7);
+            if (r ~= 0) return r;
+        }
+    }
+    return 0;
+];
+
+[ ExecTest op p;
+    next_ip = p;
+    switch (op) {
+        5: next_ip = p + 1; if (last_random <= p->0) return 1; return 0;
+        9: next_ip = p + 1; if (noun2_num ~= 0 && noun2_num == p->0) return 1; return 0;
+        10: next_ip = p + 1; if (phrase_form == p->0) return 1; return 0;
+    }
+    return 0;
+];
+
+[ ExecDispatch p sub_end test_op item test_p test_result action_end action_p;
+    sub_end = ListEndFromLen(p); item = list_content;
+    next_ip = sub_end;
+    if (item >= sub_end) return 0;
+    test_op = item->0; item++;
+    while (item < sub_end) {
+        test_p = item;
+        test_result = ExecTest(test_op, test_p);
+        item = next_ip;
+        if (test_result == 2) { next_ip = sub_end; return 2; }
+        action_end = ListEndFromLen(item); action_p = list_content;
+        if (test_result) {
+            test_result = ExecOne(action_p, action_end);
+            next_ip = sub_end;
+            return test_result;
+        }
+        item = action_end;
+    }
+    next_ip = sub_end;
+    return 0;
+];
+
+[ ExecList p end stop_on item r;
+    end = ListEndFromLen(p); item = list_content; next_ip = end;
+    while (item < end) {
+        r = ExecOne(item, end); item = next_ip;
+        if (r == 2) { next_ip = end; return 2; }
+        if (r == stop_on) { next_ip = end; return stop_on; }
+    }
+    next_ip = end;
+    return 1 - stop_on;
+];
+
+[ ExecOne p end op q r a b c content hp obj_end script script_end;
+    op = p->0; q = p + 1; next_ip = q;
+    if ((op & $80) ~= 0) {
+        a = op - $81;
+        if (a >= 0 && a < 24) {
+            content = common_ptrs-->a;
+            if (content ~= 0) {
+                r = ExecScript(content, common_ends-->a);
+                next_ip = q;
+                return r;
+            }
+        }
+        return 0;
+    }
+    if (op >= 39) {
+        a = q->0; content = q + 1; script_end = content + a; next_ip = script_end;
+        if (phrase_form == op) {
+            r = ExecScript(content, script_end);
+            next_ip = script_end;
+            return r;
+        }
+        return 0;
+    }
+    switch (op) {
+        0: a = q->0; next_ip = q + 1; MoveActiveToRoom(a);
+           if (active_obj == player_room) PrintRoomDesc(); return 1;
+        1: next_ip = q + 1; return ObjInContext(q->0);
+        3: a = q->0; b = q->1; next_ip = q + 2; p = ObjFindByNum(b);
+           if (p ~= 0 && p->0 == a) return 1; return 0;
+        4: script_end = ListEndFromLen(q); content = list_content; next_ip = script_end;
+           if (active_obj == player_room) PrintPacked(q); return 1;
+        5: next_ip = q + 1; if (last_random <= q->0) return 1; return 0;
+        6: PrintInventory(); return 1;
+        7: PrintRoomDesc(); return 1;
+        8: next_ip = q + 1; if (noun1_num ~= 0 && noun1_num == q->0) return 1; return 0;
+        9: next_ip = q + 1; if (noun2_num ~= 0 && noun2_num == q->0) return 1; return 0;
+        10: next_ip = q + 1; if (phrase_form == q->0) return 1; return 0;
+        11: return ExecDispatch(q);
+        12: return 0;
+        13: return ExecList(q, end, 0);
+        14: return ExecList(q, end, 1);
+        15: if (var_obj_data ~= 0) {
+                if (var_obj_data->1 ~= 0 && var_obj_data->0 ~= active_obj) score_dirty = 1;
+                var_obj_data->0 = active_obj;
+            }
+            return 1;
+        16: if (var_obj_data ~= 0) {
+                if (var_obj_data->1 ~= 0 && var_obj_data->0 ~= cur_room) score_dirty = 1;
+                var_obj_data->0 = cur_room;
+            }
+            return 1;
+        17: EnsureNounData(1); if (noun1_data ~= 0) PrintObjName(noun1_data, noun1_end); return 1;
+        18: EnsureNounData(2); if (noun2_data ~= 0) PrintObjName(noun2_data, noun2_end); return 1;
+        19: r = RunObjScripts(); next_ip = q; return r;
+        20: r = ExecOne(q, end); next_ip = next_ip;
+            if (r == 2) return 2; if (r) return 0; return 1;
+        21: next_ip = q + 1; if (var_obj_data == 0) return 1;
+            if ((var_obj_data->2 & q->0) == q->0) return 1; return 0;
+        22: if (var_obj_data ~= 0) PrintObjName(var_obj_data, var_obj_end); return 1;
+        23: a = q->0; b = q->1; next_ip = q + 2; p = ObjFindByNum(a);
+            if (p ~= 0) {
+                if (p->1 ~= 0 && p->0 ~= b) score_dirty = 1;
+                p->0 = b;
+            }
+            return 1;
+        24: return ObjOwnedByActive(var_obj_data);
+        25: next_ip = q + 1; MoveActiveToRoom(q->0); return 1;
+        26: var_obj_num = noun1_num; EnsureNounData(1);
+            var_obj_data = noun1_data; var_obj_end = noun1_end; return 1;
+        27: var_obj_num = noun2_num; EnsureNounData(2);
+            var_obj_data = noun2_data; var_obj_end = noun2_end; return 1;
+        28: a = q->0; next_ip = q + 1; var_obj_num = a;
+            if (a == 0) { var_obj_data = 0; var_obj_end = 0; }
+            else { var_obj_data = ObjFindByNum(a); var_obj_end = found_end; } return 1;
+        29: a = q->0; next_ip = q + 1; if (var_obj_num == 0) return 0;
+            hp = FindVarObjHP(); if (hp == 0) return 0;
+            if (hp->1 >= a) hp->1 = hp->1 - a; else hp->1 = 0;
+            if (hp->1 == 0) {
+                ObjFindByNum(var_obj_num); obj_end = found_end;
+                script = ListFindTag(var_obj_data + 3, obj_end, 10);
+                if (script ~= 0) { script_end = ListEndFromLen(script); content = list_content;
+                    r = ExecScript(content, script_end); next_ip = q + 1; if (r == 2) return 2; }
+            } return 1;
+        30: a = q->0; b = q->1; next_ip = q + 2;
+            p = ObjFindByNum(a); content = ObjFindByNum(b);
+            if (p ~= 0 && content ~= 0) {
+                if ((p->1 ~= 0 || content->1 ~= 0) && p->0 ~= content->0) score_dirty = 1;
+                c = p->0; p->0 = content->0; content->0 = c;
+            }
+            return 1;
+        31: script_end = ListEndFromLen(q); next_ip = script_end;
+            if (ObjInContext(player_room)) PrintPacked(q); return 1;
+        32: next_ip = q + 1; if (active_obj == q->0) return 1; return 0;
+        35: a = q->0; next_ip = q + 1; if (var_obj_data == 0) return 0;
+            hp = FindVarObjHP(); if (hp ~= 0) {
+                b = hp->1 + a; if (b > 255) b = 255; hp->1 = b;
+            } return 1;
+        36: OutChar(); new_line; print "GAME OVER^"; @quit;
+        37: OutChar(); OutChar(); new_line; return 2;
+        38: PrintScore(); return 1;
+    }
+    return 0;
+];
+
+[ SubScript new_phrase new_n1 new_n2 save_phrase save_n1 save_n2 save_n1d save_n1e save_n2d save_n2e r;
+    save_phrase = phrase_form; save_n1 = noun1_num; save_n2 = noun2_num;
+    save_n1d = noun1_data; save_n1e = noun1_end; save_n2d = noun2_data; save_n2e = noun2_end;
+    phrase_form = new_phrase; noun1_num = new_n1; noun2_num = new_n2;
+    noun1_data = 0; noun1_end = 0; noun2_data = 0; noun2_end = 0;
+    EnsureNounData(1); EnsureNounData(2);
+    r = ExecMain();
+    phrase_form = save_phrase; noun1_num = save_n1; noun2_num = save_n2;
+    noun1_data = save_n1d; noun1_end = save_n1e; noun2_data = save_n2d; noun2_end = save_n2e;
+    return r;
+];
+
+[ ExecScript p end r;
+    while (p < end) {
+        r = ExecOne(p, end); p = next_ip;
+        if (r ~= 0) return r;
+    }
+    return 0;
+];
+
+[ AotRunCommon key p;
+    key = key - $81;
+    if (key < 0 || key >= 24) return 0;
+    p = common_ptrs-->key;
+    if (p == 0) return 0;
+    return ExecScript(p, common_ends-->key);
+];
+
+[ AotTest op a b p;
+    switch (op) {
+        1: return ObjInContext(a);
+        3: p = ObjFindByNum(b); if (p ~= 0 && p->0 == a) return 1; return 0;
+        5: if (last_random <= a) return 1; return 0;
+        10: if (phrase_form == a) return 1; return 0;
+    }
+    return 0;
+];
+
+[ AotOp00 a;
+    MoveActiveToRoom(a);
+    if (active_obj == player_room) PrintRoomDesc();
+    return 1;
+];
+[ AotOp01 a; return ObjInContext(a); ];
+[ AotOp03 a b p;
+    p = ObjFindByNum(b); if (p ~= 0 && p->0 == a) return 1; return 0;
+];
+[ AotOp12; return 0; ];
+[ AotOp23 a b p;
+    p = ObjFindByNum(a);
+    if (p ~= 0) {
+        if (p->1 ~= 0 && p->0 ~= b) score_dirty = 1;
+        p->0 = b;
+    }
+    return 1;
+];
+[ AotOp28 a;
+    var_obj_num = a;
+    if (a == 0) { var_obj_data = 0; var_obj_end = 0; }
+    else { var_obj_data = ObjFindByNum(a); var_obj_end = found_end; }
+    return 1;
+];
+[ AotOp29 a hp r;
+    if (var_obj_num == 0) return 0;
+    hp = FindVarObjHP(); if (hp == 0) return 0;
+    if (hp->1 >= a) hp->1 = hp->1 - a; else hp->1 = 0;
+    if (hp->1 == 0) {
+        r = TryTaggedScript(var_obj_data + 3, var_obj_end, 10);
+        if (r == 2) return 2;
+    }
+    return 1;
+];
+[ AotOp31Id text_id;
+    if (ObjInContext(player_room)) FastPrintPacked(text_id);
+    return 1;
+];
+[ AotOp33 a b c; return SubScript(a, b, c); ];
+[ AotOp35 a hp b;
+    if (var_obj_data == 0) return 0;
+    hp = FindVarObjHP();
+    if (hp ~= 0) { b = hp->1 + a; if (b > 255) b = 255; hp->1 = b; }
+    return 1;
+];
+
+[ ExecMain r list_p action_end;
+    r = ExecOne(main_prefix, main_script_end);
+    if (r ~= 0) return r;
+    if (phrase_form >= 0 && phrase_form < 64) {
+        list_p = main_action_lists-->phrase_form;
+        if (list_p ~= 0) {
+            action_end = ListEndFromLen(list_p);
+            r = ExecOne(list_content, action_end);
+            if (r ~= 0) return r;
+        }
+    }
+    return ExecOne(main_fallback, main_script_end);
+];
