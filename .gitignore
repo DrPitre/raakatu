@@ -10,3 +10,5 @@ raakatu.o
 gamedata.o
 *.list
 *.map
+raakatu.z3
+raakatu-z3.dsk

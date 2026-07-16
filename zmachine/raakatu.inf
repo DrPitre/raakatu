@@ -1,0 +1,815 @@
+!% -v3
+!% -~S
+! Raaka-Tu -- standalone Inform 6 / Z-machine Version 3 port.
+! The game remains the original bytecode program; this file is its runtime.
+
+Constant PLAYER_OBJ $1D;
+Constant START_ROOM $96;
+Constant INPUT_LEN 32;
+Constant MAX_TOKENS 32;
+
+Include "zmachine/gamedata.inf";
+
+Array input_buffer -> 34;
+Array parse_buffer -> (2 + 4 * MAX_TOKENS);
+Array token_buffer -> 96;
+Array vocab_lists --> 5;
+Array rng_state -> 8;
+
+! Version 3 interpreters build the status line from globals 0-2. Reserve the
+! conventional slots even though Raaka-Tu prints its own score on demand.
+Global location;
+Global score;
+Global turns;
+Global list_content;
+Global list_end;
+Global found_end;
+Global next_ip;
+
+Global cur_room;
+Global cur_room_data;
+Global cur_room_end;
+Global player_room;
+Global active_obj;
+Global active_obj_data;
+Global active_obj_end;
+Global var_obj_num;
+Global var_obj_data;
+Global var_obj_end;
+Global noun1_num;
+Global noun1_data;
+Global noun1_end;
+Global noun1_typed;
+Global noun2_num;
+Global noun2_data;
+Global noun2_end;
+Global noun2_typed;
+Global phrase_form;
+Global verb_word;
+Global prep_word;
+Global prep_given;
+Global adj_word;
+Global adj2_word;
+Global cmd_targ;
+Global token_count;
+Global last_random;
+Global cap_next = 1;
+
+Object StatusRoom "Raaka-Tu";
+
+[ ListEndFromLen p len;
+    if ((p->0 & $80) ~= 0) {
+        len = (p->0 & $7F) * 256 + p->1;
+        list_content = p + 2;
+    } else {
+        len = p->0;
+        list_content = p + 1;
+    }
+    list_end = list_content + len;
+    return list_end;
+];
+
+[ ListOpen p;
+    return ListEndFromLen(p + 1);
+];
+
+[ ListBegin p;
+    ListOpen(p);
+    found_end = list_end;
+    return list_content;
+];
+
+[ ListFindTag p end tag item_end item_tag;
+    while (p < end) {
+        item_tag = p->0;
+        item_end = ListOpen(p);
+        if (item_tag == tag) {
+            found_end = item_end;
+            return p + 1;
+        }
+        p = item_end;
+    }
+    found_end = 0;
+    return 0;
+];
+
+[ OutChar c;
+    if (c == 10 or 13) {
+        new_line;
+        cap_next = 1;
+        rtrue;
+    }
+    if (c == $CF) rtrue;
+    if (c >= 'A' && c <= 'Z') {
+        if (cap_next == 0) c = c + 32;
+        @print_char c;
+        cap_next = 0;
+        rtrue;
+    }
+    @print_char c;
+    if (c == '.' or '!' or '?') cap_next = 1;
+];
+
+! Decode the source's little-endian base-40 words without overflowing a
+! signed 16-bit Inform value. 1600 is $0640, so repeated byte subtraction
+! yields the first digit in at most 39 iterations.
+[ PrintPacked p content end remaining hi lo d0 rem d1 d2;
+    end = ListEndFromLen(p);
+    content = list_content;
+    remaining = end - content;
+    while (remaining >= 2) {
+        lo = content->0;
+        hi = content->1;
+        d0 = 0;
+        while (hi > 6 || (hi == 6 && lo >= 64)) {
+            if (lo < 64) {
+                lo = lo + 192;
+                hi = hi - 7;
+            } else {
+                lo = lo - 64;
+                hi = hi - 6;
+            }
+            d0++;
+        }
+        rem = hi * 256 + lo;
+        d1 = rem / 40;
+        d2 = rem % 40;
+        OutChar(chartab->d0);
+        OutChar(chartab->d1);
+        OutChar(chartab->d2);
+        content = content + 2;
+        remaining = remaining - 2;
+    }
+    if (remaining == 1) OutChar(content->0);
+    OutChar(' ');
+];
+
+[ PrintPlain p len;
+    len = p->0;
+    p++;
+    while (len > 0) {
+        OutChar(p->0);
+        p++;
+        len--;
+    }
+    OutChar(13);
+];
+
+[ RandInit i;
+    for (i = 0 : i < 8 : i++) rng_state->i = rand_seed->(i + 1);
+    last_random = rng_state->0;
+];
+
+[ RandNext i a carry tap idx hi lo;
+    a = rng_state->0;
+    for (i = 0 : i < $17 : i++) {
+        tap = a & 6;
+        if (tap == 0 or 6) carry = 1; else carry = 0;
+        idx = (i + 1) % 8;
+        hi = rng_state->idx / 2;
+        if (carry) hi = hi + 128;
+        rng_state->idx = hi;
+        idx = i % 8;
+        lo = rng_state->idx / 2;
+        if ((hi & 1) ~= 0) lo = lo + 128;
+        lo = lo & $FE;
+        rng_state->idx = lo;
+        a = rng_state->((i + 1) % 8);
+    }
+    last_random = rng_state->0;
+    return last_random;
+];
+
+[ ObjFindByNum num p end count;
+    p = ListBegin(obj_data);
+    end = found_end;
+    count = num;
+    while (p < end) {
+        ListOpen(p);
+        if (--count == 0) {
+            found_end = list_end;
+            return list_content;
+        }
+        p = list_end;
+    }
+    found_end = 0;
+    return 0;
+];
+
+[ ObjInContext num p loc;
+    p = ObjFindByNum(num);
+    if (p == 0) rfalse;
+    loc = p->0;
+    while (true) {
+        if (loc == cur_room or $FF) rtrue;
+        if (loc == 0) rfalse;
+        if ((loc & $80) ~= 0) rfalse;
+        if (loc == active_obj) rtrue;
+        p = ObjFindByNum(loc);
+        if (p == 0) rfalse;
+        loc = p->0;
+    }
+];
+
+[ ObjOwnedByActive p loc;
+    if (p == 0) rfalse;
+    loc = p->0;
+    while (true) {
+        if (loc == 0) rfalse;
+        if (loc == active_obj) rtrue;
+        if ((loc & $80) ~= 0) rfalse;
+        p = ObjFindByNum(loc);
+        if (p == 0) rfalse;
+        loc = p->0;
+    }
+];
+
+[ ObjSeqFromTag tag p end count item_tag;
+    p = ListBegin(obj_data);
+    end = found_end;
+    count = 0;
+    while (p < end) {
+        item_tag = p->0;
+        ListOpen(p);
+        count++;
+        if (item_tag == tag && ObjInContext(count)) return count;
+        p = list_end;
+    }
+    return 0;
+];
+
+[ RoomFind num p end tag;
+    p = ListBegin(room_data);
+    end = found_end;
+    while (p < end) {
+        tag = p->0;
+        ListOpen(p);
+        if (tag == num) {
+            found_end = list_end;
+            return list_content;
+        }
+        p = list_end;
+    }
+    found_end = 0;
+    return 0;
+];
+
+[ GoRoom room;
+    cur_room = room;
+    cur_room_data = RoomFind(room);
+    cur_room_end = found_end;
+];
+
+[ MoveActiveToRoom room p;
+    p = ObjFindByNum(active_obj);
+    GoRoom(room);
+    if (p ~= 0) p->0 = room;
+];
+
+[ PrintObjName content end p;
+    if (content == 0 || end == 0) rfalse;
+    p = ListFindTag(content + 3, end, 2);
+    if (p ~= 0) PrintPacked(p);
+];
+
+[ PrintRoomDesc p end content item_end desc;
+    if (cur_room_data ~= 0) {
+        desc = ListFindTag(cur_room_data + 1, cur_room_end, 3);
+        if (desc ~= 0) PrintPacked(desc);
+        OutChar(13);
+    }
+    p = ListBegin(obj_data);
+    end = found_end;
+    while (p < end) {
+        item_end = ListOpen(p);
+        content = list_content;
+        if (content->0 == cur_room) {
+            desc = ListFindTag(content + 3, item_end, 3);
+            if (desc ~= 0) PrintPacked(desc);
+        }
+        p = item_end;
+    }
+];
+
+[ VocabMatchList p pos vlen i match sc bc ep;
+    while (p->0 ~= 0) {
+        vlen = p->0;
+        p++;
+        match = 1;
+        for (i = 0 : i < vlen : i++) {
+            sc = input_buffer->(pos + i);
+            if (sc == 0 || sc ~= p->i) match = 0;
+        }
+        if (match) {
+            bc = input_buffer->(pos + vlen);
+            if (bc == 0 || bc < 'A' || bc > 'Z' || vlen >= 6) {
+                ep = pos + vlen;
+                while (input_buffer->ep >= 'A' && input_buffer->ep <= 'Z') ep++;
+                found_end = ep;
+                return p->vlen;
+            }
+        }
+        p = p + vlen + 1;
+    }
+    return 0;
+];
+
+[ PrepareVocab p li;
+    p = vocab_data;
+    for (li = 0 : li < 4 : li++) {
+        vocab_lists-->li = p;
+        while (p->0 ~= 0) p = p + p->0 + 2;
+        p++;
+    }
+    vocab_lists-->4 = prep_data;
+];
+
+[ ParseInput pos li word found_type found_num tokpos endpos;
+    token_count = 0;
+    pos = 1;
+    while (input_buffer->pos ~= 0) {
+        while (input_buffer->pos == ' ') pos++;
+        if (input_buffer->pos == 0) return;
+        word = VocabMatchList(vocab_lists-->0, pos);
+        if (word ~= 0) {
+            pos = found_end;
+        } else {
+            found_type = 0;
+            found_num = 0;
+            for (li = 1 : li <= 4 : li++) {
+                word = VocabMatchList(vocab_lists-->li, pos);
+                if (word ~= 0 && found_type == 0) {
+                    found_type = li;
+                    found_num = word;
+                    endpos = found_end;
+                }
+            }
+            if (found_type == 0) {
+                while (input_buffer->pos >= 'A' && input_buffer->pos <= 'Z') pos++;
+            } else {
+                if (token_count < MAX_TOKENS) {
+                    tokpos = token_count * 3;
+                    token_buffer->tokpos = found_type;
+                    token_buffer->(tokpos + 1) = found_num;
+                    token_buffer->(tokpos + 2) = pos;
+                    token_count++;
+                }
+                pos = endpos;
+            }
+        }
+    }
+];
+
+[ DecodeTokens i typ word seq;
+    verb_word = 0; prep_word = 0; prep_given = 0;
+    adj_word = 0; adj2_word = 0; cmd_targ = 0;
+    noun1_num = 0; noun2_num = 0;
+    noun1_data = 0; noun1_end = 0; noun2_data = 0; noun2_end = 0;
+    for (i = 0 : i < token_count : i++) {
+        typ = token_buffer->(i * 3);
+        word = token_buffer->(i * 3 + 1);
+        switch (typ) {
+            1:
+                verb_word = word;
+                if (cmd_targ == 0) cmd_targ = word;
+            2:
+                seq = ObjSeqFromTag(word);
+                if (prep_given) {
+                    if (noun2_num == 0) { noun2_num = seq; noun2_typed = word; }
+                } else {
+                    if (noun1_num == 0) { noun1_num = seq; noun1_typed = word; }
+                    else if (noun2_num == 0) { noun2_num = seq; noun2_typed = word; }
+                }
+            3:
+                if (adj_word == 0) adj_word = word; else adj2_word = word;
+            4:
+                if (prep_word == 0) { prep_word = word; prep_given = 1; }
+        }
+    }
+];
+
+[ ScanObjByMask mask p end count found content item_end;
+    p = ListBegin(obj_data);
+    end = found_end;
+    count = 0; found = 0;
+    while (p < end) {
+        item_end = ListOpen(p);
+        content = list_content;
+        count++;
+        if (ObjInContext(count) && (content->2 & mask) == mask) {
+            if (found ~= 0) return 255;
+            found = count;
+        }
+        p = item_end;
+    }
+    return found;
+];
+
+[ FindPhraseForm p pv pp pn1 pn2 form found;
+    p = phrase_list;
+    while (p->0 ~= 0) {
+        pv = p->0; pp = p->1; pn1 = p->2; pn2 = p->3; form = p->4;
+        if (pv == verb_word && (prep_word == 0 || prep_word == pp)) {
+            if (pn1 ~= 0 && noun1_num == 0) {
+                found = ScanObjByMask(pn1);
+                if (found == 0 or 255) return -1;
+                noun1_num = found;
+            } else if (pn1 == 0 && noun1_num ~= 0) return -2;
+            if (pn2 ~= 0 && noun2_num == 0) {
+                found = ScanObjByMask(pn2);
+                if (found == 0 or 255) return -1;
+                noun2_num = found;
+            } else if (pn2 == 0 && noun2_num ~= 0) return -2;
+            return form;
+        }
+        p = p + 5;
+    }
+    return 0;
+];
+
+[ EnsureNounData which;
+    if (which == 1 && noun1_data == 0 && noun1_num ~= 0) {
+        noun1_data = ObjFindByNum(noun1_num); noun1_end = found_end;
+    }
+    if (which == 2 && noun2_data == 0 && noun2_num ~= 0) {
+        noun2_data = ObjFindByNum(noun2_num); noun2_end = found_end;
+    }
+];
+
+[ TryTaggedScript content end tag p script_end r;
+    p = ListFindTag(content, end, tag);
+    if (p == 0) return 0;
+    script_end = ListEndFromLen(p);
+    p = list_content;
+    r = ExecScript(p, script_end);
+    return r;
+];
+
+[ FindVarObjHP obj_end p;
+    if (var_obj_data == 0) return 0;
+    ObjFindByNum(var_obj_num);
+    obj_end = found_end;
+    p = ListFindTag(var_obj_data + 3, obj_end, 9);
+    if (p == 0) return 0;
+    ListEndFromLen(p);
+    return list_content;
+];
+
+[ PrintInventory p end content item_end;
+    p = ListBegin(obj_data); end = found_end;
+    while (p < end) {
+        item_end = ListOpen(p); content = list_content;
+        if (content->0 == player_room) PrintObjName(content, item_end);
+        p = item_end;
+    }
+];
+
+[ CurrentScore p end content item_end total loc in_treasure;
+    p = ListBegin(obj_data); end = found_end; total = 0;
+    in_treasure = (cur_room == $96);
+    while (p < end) {
+        item_end = ListOpen(p); content = list_content;
+        if (content->1 ~= 0) {
+            loc = content->0;
+            if (loc == $96) total = total + content->1 * 2;
+            else if (loc == player_room) {
+                total = total + content->1;
+                if (in_treasure) total = total + content->1;
+            }
+        }
+        p = item_end;
+    }
+    return total;
+];
+
+[ PrintScore total;
+    total = CurrentScore();
+    OutChar('0' + total / 10); OutChar('0' + total % 10); OutChar('.'); OutChar(' ');
+];
+
+[ RunObjScripts p end r;
+    if (cur_room_data ~= 0) {
+        r = TryTaggedScript(cur_room_data + 1, cur_room_end, 4);
+        if (r ~= 0) return r;
+    }
+    if (noun2_num ~= 0) {
+        p = ObjFindByNum(noun2_num); end = found_end;
+        if (p ~= 0) {
+            r = TryTaggedScript(p + 3, end, 6);
+            if (r ~= 0) return r;
+        }
+    }
+    if (noun1_num ~= 0) {
+        p = ObjFindByNum(noun1_num); end = found_end;
+        if (p ~= 0) {
+            r = TryTaggedScript(p + 3, end, 7);
+            if (r ~= 0) return r;
+        }
+    }
+    return 0;
+];
+
+[ ExecTest op p a b hp;
+    next_ip = p;
+    switch (op) {
+        1: next_ip = p + 1; return ObjInContext(p->0);
+        2: next_ip = p + 1; return ObjOwnedByActive(ObjFindByNum(p->0));
+        3: a = p->0; b = p->1; next_ip = p + 2; hp = ObjFindByNum(b);
+           if (hp ~= 0 && hp->0 == a) return 1; return 0;
+        5: next_ip = p + 1; if (last_random <= p->0) return 1; return 0;
+        8: next_ip = p + 1; if (noun1_num ~= 0 && noun1_num == p->0) return 1; return 0;
+        9: next_ip = p + 1; if (noun2_num ~= 0 && noun2_num == p->0) return 1; return 0;
+        10: next_ip = p + 1; if (phrase_form == p->0) return 1; return 0;
+        15: if (var_obj_data ~= 0) var_obj_data->0 = active_obj; return 1;
+        18: return ObjOwnedByActive(var_obj_data);
+        20: next_ip = p + 1; if (active_obj == p->0) return 1; return 0;
+        21: next_ip = p + 1; if (var_obj_data == 0) return 1;
+            if ((var_obj_data->2 & p->0) == p->0) return 1; return 0;
+        22: next_ip = p + 1; hp = FindVarObjHP(); if (hp == 0) return 1;
+            if (hp->1 > p->0) return 0; return 1;
+    }
+    return 0;
+];
+
+[ ExecDispatch p sub_end test_op item test_p test_result action_end action_p;
+    sub_end = ListEndFromLen(p); item = list_content;
+    next_ip = sub_end;
+    if (item >= sub_end) return 0;
+    test_op = item->0; item++;
+    while (item < sub_end) {
+        test_p = item;
+        test_result = ExecTest(test_op, test_p);
+        item = next_ip;
+        if (test_result == 2) { next_ip = sub_end; return 2; }
+        action_end = ListEndFromLen(item); action_p = list_content;
+        if (test_result) {
+            test_result = ExecOne(action_p, action_end);
+            next_ip = sub_end;
+            return test_result;
+        }
+        item = action_end;
+    }
+    next_ip = sub_end;
+    return 0;
+];
+
+[ ExecList p end stop_on item r;
+    end = ListEndFromLen(p); item = list_content; next_ip = end;
+    while (item < end) {
+        r = ExecOne(item, end); item = next_ip;
+        if (r == 2) { next_ip = end; return 2; }
+        if (r == stop_on) { next_ip = end; return stop_on; }
+    }
+    next_ip = end;
+    return 1 - stop_on;
+];
+
+[ ExecOne p end op q r a b c item_end content hp obj_end script script_end;
+    op = p->0; q = p + 1; next_ip = q;
+    if ((op & $80) ~= 0) {
+        p = ListBegin(ccmd_data); item_end = found_end;
+        while (p < item_end) {
+            a = p->0; b = ListOpen(p); content = list_content;
+            if (a == op) {
+                r = ExecScript(content, b);
+                next_ip = q;
+                return r;
+            }
+            p = b;
+        }
+        return 0;
+    }
+    if (op >= 39) {
+        a = q->0; content = q + 1; script_end = content + a; next_ip = script_end;
+        if (phrase_form == op) {
+            r = ExecScript(content, script_end);
+            next_ip = script_end;
+            return r;
+        }
+        return 0;
+    }
+    switch (op) {
+        0: a = q->0; next_ip = q + 1; MoveActiveToRoom(a);
+           if (active_obj == player_room) PrintRoomDesc(); return 1;
+        1: next_ip = q + 1; return ObjInContext(q->0);
+        2: next_ip = q + 1; return ObjOwnedByActive(ObjFindByNum(q->0));
+        3: a = q->0; b = q->1; next_ip = q + 2; p = ObjFindByNum(b);
+           if (p ~= 0 && p->0 == a) return 1; return 0;
+        4: script_end = ListEndFromLen(q); content = list_content; next_ip = script_end;
+           if (active_obj == player_room) PrintPacked(q); return 1;
+        5: next_ip = q + 1; if (last_random <= q->0) return 1; return 0;
+        6: PrintInventory(); return 1;
+        7: PrintRoomDesc(); return 1;
+        8: next_ip = q + 1; if (noun1_num ~= 0 && noun1_num == q->0) return 1; return 0;
+        9: next_ip = q + 1; if (noun2_num ~= 0 && noun2_num == q->0) return 1; return 0;
+        10: next_ip = q + 1; if (phrase_form == q->0) return 1; return 0;
+        11: return ExecDispatch(q);
+        12: return 0;
+        13: return ExecList(q, end, 0);
+        14: return ExecList(q, end, 1);
+        15: if (var_obj_data ~= 0) var_obj_data->0 = active_obj; return 1;
+        16: if (var_obj_data ~= 0) var_obj_data->0 = cur_room; return 1;
+        17: EnsureNounData(1); if (noun1_data ~= 0) PrintObjName(noun1_data, noun1_end); return 1;
+        18: EnsureNounData(2); if (noun2_data ~= 0) PrintObjName(noun2_data, noun2_end); return 1;
+        19: r = RunObjScripts(); next_ip = q; return r;
+        20: r = ExecOne(q, end); next_ip = next_ip;
+            if (r == 2) return 2; if (r) return 0; return 1;
+        21: next_ip = q + 1; if (var_obj_data == 0) return 1;
+            if ((var_obj_data->2 & q->0) == q->0) return 1; return 0;
+        22: if (var_obj_data ~= 0) PrintObjName(var_obj_data, var_obj_end); return 1;
+        23: a = q->0; b = q->1; next_ip = q + 2; p = ObjFindByNum(a);
+            if (p ~= 0) p->0 = b; return 1;
+        24: return ObjOwnedByActive(var_obj_data);
+        25: next_ip = q + 1; MoveActiveToRoom(q->0); return 1;
+        26: var_obj_num = noun1_num; EnsureNounData(1);
+            var_obj_data = noun1_data; var_obj_end = noun1_end; return 1;
+        27: var_obj_num = noun2_num; EnsureNounData(2);
+            var_obj_data = noun2_data; var_obj_end = noun2_end; return 1;
+        28: a = q->0; next_ip = q + 1; var_obj_num = a;
+            if (a == 0) { var_obj_data = 0; var_obj_end = 0; }
+            else { var_obj_data = ObjFindByNum(a); var_obj_end = found_end; } return 1;
+        29: a = q->0; next_ip = q + 1; if (var_obj_num == 0) return 0;
+            hp = FindVarObjHP(); if (hp == 0) return 0;
+            if (hp->1 >= a) hp->1 = hp->1 - a; else hp->1 = 0;
+            if (hp->1 == 0) {
+                ObjFindByNum(var_obj_num); obj_end = found_end;
+                script = ListFindTag(var_obj_data + 3, obj_end, 10);
+                if (script ~= 0) { script_end = ListEndFromLen(script); content = list_content;
+                    r = ExecScript(content, script_end); next_ip = q + 1; if (r == 2) return 2; }
+            } return 1;
+        30: a = q->0; b = q->1; next_ip = q + 2;
+            p = ObjFindByNum(a); content = ObjFindByNum(b);
+            if (p ~= 0 && content ~= 0) { c = p->0; p->0 = content->0; content->0 = c; } return 1;
+        31: script_end = ListEndFromLen(q); next_ip = script_end;
+            if (ObjInContext(player_room)) PrintPacked(q); return 1;
+        32: next_ip = q + 1; if (active_obj == q->0) return 1; return 0;
+        33: a = q->0; b = q->1; c = q->2;
+            r = SubScript(a, b, c); next_ip = q + 3; return r;
+        34: next_ip = q + 1; hp = FindVarObjHP(); if (hp == 0) return 1;
+            if (hp->1 > q->0) return 0; return 1;
+        35: a = q->0; next_ip = q + 1; if (var_obj_data == 0) return 0;
+            hp = FindVarObjHP(); if (hp ~= 0) {
+                b = hp->1 + a; if (b > 255) b = 255; hp->1 = b;
+            } return 1;
+        36: OutChar(13); new_line; print "GAME OVER^"; @quit;
+        37: OutChar(13); OutChar(13); new_line; return 2;
+        38: PrintScore(); return 1;
+    }
+    return 0;
+];
+
+[ SubScript new_phrase new_n1 new_n2 save_phrase save_n1 save_n2 save_n1d save_n1e save_n2d save_n2e p e r;
+    save_phrase = phrase_form; save_n1 = noun1_num; save_n2 = noun2_num;
+    save_n1d = noun1_data; save_n1e = noun1_end; save_n2d = noun2_data; save_n2e = noun2_end;
+    phrase_form = new_phrase; noun1_num = new_n1; noun2_num = new_n2;
+    noun1_data = 0; noun1_end = 0; noun2_data = 0; noun2_end = 0;
+    EnsureNounData(1); EnsureNounData(2);
+    e = ListOpen(cmd_data); p = list_content; r = ExecScript(p, e);
+    phrase_form = save_phrase; noun1_num = save_n1; noun2_num = save_n2;
+    noun1_data = save_n1d; noun1_end = save_n1e; noun2_data = save_n2d; noun2_end = save_n2e;
+    return r;
+];
+
+[ ExecScript p end r;
+    while (p < end) {
+        r = ExecOne(p, end); p = next_ip;
+        if (r ~= 0) return r;
+    }
+    return 0;
+];
+
+[ RunTurnScripts player_room_snapshot p end content item_end obj_idx obj_room script se r owner;
+    p = ListBegin(obj_data); end = found_end; obj_idx = 0;
+    while (p < end) {
+        item_end = ListOpen(p); content = list_content; obj_idx++; obj_room = content->0;
+        script = ListFindTag(content + 3, item_end, 8);
+        if (script ~= 0 && obj_room ~= 0) {
+            se = ListEndFromLen(script); script = list_content; RandNext();
+            while ((obj_room & $80) == 0) {
+                if (obj_room == player_room) { obj_room = player_room_snapshot; break; }
+                owner = ObjFindByNum(obj_room);
+                if (owner == 0) { obj_room = 0; break; }
+                obj_room = owner->0;
+                if (obj_room == 0) break;
+            }
+            if (obj_room ~= 0) {
+                GoRoom(obj_room); active_obj = obj_idx; active_obj_data = content; active_obj_end = item_end;
+                r = ExecScript(script, se); if (r == 2) return 1;
+            }
+        }
+        p = item_end;
+    }
+    active_obj = player_room; active_obj_data = 0; active_obj_end = 0;
+    return 0;
+];
+
+[ GameInit;
+    RandInit(); player_room = PLAYER_OBJ; active_obj = player_room;
+    active_obj_data = 0; active_obj_end = 0; GoRoom(START_ROOM); cap_next = 1;
+    score = 0; turns = 0;
+];
+
+[ ResetTurn;
+    verb_word = 0; prep_word = 0; prep_given = 0; adj_word = 0; adj2_word = 0; cmd_targ = 0;
+    noun1_num = 0; noun2_num = 0; noun1_typed = 0; noun2_typed = 0;
+    noun1_data = 0; noun1_end = 0; noun2_data = 0; noun2_end = 0;
+    var_obj_num = 0; var_obj_data = 0; var_obj_end = 0; token_count = 0; phrase_form = 0;
+];
+
+[ GameTurn pform p e r snapshot pd;
+    turns++;
+    ResetTurn(); ParseInput(); DecodeTokens();
+    if (verb_word == 0 && token_count == 0) { PrintPlain(msg_qverb); return; }
+    if ((noun1_typed ~= 0 && noun1_num == 0) || (noun2_typed ~= 0 && noun2_num == 0)) {
+        PrintPlain(msg_qwhat); return;
+    }
+    pform = FindPhraseForm();
+    if (pform == -2) { PrintPlain(msg_qphrase); return; }
+    if (pform < 0) { PrintPlain(msg_qwhat); return; }
+    phrase_form = pform;
+    if (phrase_form == 0 && verb_word == 0) { PrintPlain(msg_qverb); return; }
+    EnsureNounData(1); EnsureNounData(2);
+    if (noun1_num == 0 && noun2_num ~= 0) {
+        noun1_num = noun2_num; noun1_data = noun2_data; noun1_end = noun2_end;
+    }
+    e = ListOpen(cmd_data); p = list_content; r = ExecScript(p, e);
+    if (r == 2) { GameInit(); PrintRoomDesc(); new_line; return; }
+    snapshot = cur_room;
+    if (RunTurnScripts(snapshot)) { GameInit(); PrintRoomDesc(); new_line; return; }
+    pd = ObjFindByNum(player_room);
+    if (pd ~= 0 && pd->0 ~= 0) GoRoom(pd->0); else GoRoom(snapshot);
+    OutChar(13); new_line;
+];
+
+[ UpcaseInput i c;
+    i = 1;
+    while (input_buffer->i ~= 0) {
+        c = input_buffer->i;
+        if (c >= 'a' && c <= 'z') input_buffer->i = c - 32;
+        i++;
+    }
+    ! Version 3 cannot expose erased keys; count the final line plus Return.
+    for (c = 1 : c < i : c++) RandNext();
+    RandNext();
+];
+
+[ InputIsSave;
+    if (input_buffer->1 == 'S' && input_buffer->2 == 'A' && input_buffer->3 == 'V' &&
+        input_buffer->4 == 'E' && input_buffer->5 == 0) rtrue;
+    rfalse;
+];
+
+[ InputIsRestore;
+    if (input_buffer->1 == 'R' && input_buffer->2 == 'E' && input_buffer->3 == 'S' &&
+        input_buffer->4 == 'T' && input_buffer->5 == 'O' && input_buffer->6 == 'R' &&
+        input_buffer->7 == 'E' && input_buffer->8 == 0) rtrue;
+    rfalse;
+];
+
+[ InputIsRestart;
+    if (input_buffer->1 == 'R' && input_buffer->2 == 'E' && input_buffer->3 == 'S' &&
+        input_buffer->4 == 'T' && input_buffer->5 == 'A' && input_buffer->6 == 'R' &&
+        input_buffer->7 == 'T' && input_buffer->8 == 0) rtrue;
+    rfalse;
+];
+
+[ HandleMeta;
+    if (InputIsSave()) {
+        @save ?meta_saved;
+        rtrue;
+        .meta_saved;
+        rtrue;
+    }
+    if (InputIsRestore()) {
+        @restore ?meta_restore_succeeded;
+        print "Restore failed.^";
+        rtrue;
+        .meta_restore_succeeded;
+        rtrue;
+    }
+    if (InputIsRestart()) @restart;
+    rfalse;
+];
+
+[ ReadCommand;
+    new_line; print "> ";
+    score = CurrentScore();
+    input_buffer->0 = INPUT_LEN;
+    input_buffer->1 = 0;
+    parse_buffer->0 = MAX_TOKENS;
+    @sread input_buffer parse_buffer;
+    UpcaseInput();
+];
+
+[ Main;
+    location = StatusRoom;
+    score = 0; turns = 0;
+    if (msg_qwhich->0 == 255) PrintPlain(msg_qwhich); ! retain the source table
+    PrepareVocab(); GameInit();
+    print "RAAKA-TU^^";
+    PrintRoomDesc(); new_line;
+    while (true) {
+        ReadCommand();
+        if (input_buffer->1 ~= 0 && HandleMeta() == 0) GameTurn();
+    }
+];

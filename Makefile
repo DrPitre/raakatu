@@ -2,6 +2,14 @@ CC      = gcc
 CFLAGS  = -g -O0 -Wall
 TARGET  = raakatu-host
 
+# Inform 6 / Z-machine Version 3 port. Version 3 is required by the native
+# NitrOS-9 ZIP interpreter in infocom-os9-port.
+INFORM              ?= inform
+ZTERP               ?= dfrotz
+ZTARGET               = raakatu.z3
+INFOCOM_OS9_PORT     ?= $(HOME)/Projects/infocom-os9-port
+ZDSKIMAGE             = raakatu-z3.dsk
+
 # cmoc (6809 C cross-compiler, from ~/Projects/coco-shelf) builds the real
 # NitrOS-9 command binary, as opposed to $(TARGET) above which is a native
 # build used only for testing game logic on the host.
@@ -61,10 +69,40 @@ MAME_FLAGS   ?= -rompath $(MAME_ROM_PATH) -window -nothrottle -skip_gameinfo -au
 run: diskcopy
 	$(MAME_BINARY) $(MAME_MACHINE) $(MAME_FLAGS) -flop1 $(BOOTDSK)
 
+zmachine: $(ZTARGET)
+
+$(ZTARGET): zmachine/raakatu.inf zmachine/gamedata.inf
+	$(INFORM) -v3 +include_path=. $< $@
+
+zmachine/gamedata.inf: gamedata.c generate_zdata.py
+	python3 generate_zdata.py
+
+regen-zdata:
+	python3 generate_zdata.py
+
+check-zdata:
+	python3 generate_zdata.py --check
+
+test-zmachine: $(TARGET) $(ZTARGET) check-zdata
+	ZTERP=$(ZTERP) ./test_zmachine.sh
+
+$(ZDSKIMAGE): $(ZTARGET) $(INFOCOM_OS9_PORT)/zork.dsk $(INFOCOM_OS9_PORT)/infocom
+	cp $(INFOCOM_OS9_PORT)/zork.dsk $@
+	os9 copy -o=0 -r $(INFOCOM_OS9_PORT)/infocom $@,CMDS/infocom
+	os9 attr -q -pe -npw -pr -e -w -r $@,CMDS/infocom
+	os9 copy -o=0 -r $(ZTARGET) $@,raakatu.dat
+
+zmachine-disk: $(ZDSKIMAGE)
+
+run-zmachine: $(ZDSKIMAGE)
+	$(MAME_BINARY) $(MAME_MACHINE) $(MAME_FLAGS) -flop1 $(ZDSKIMAGE)
+
 regen-gamedata:
 	python3 extract_data.py
 
 clean:
-	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) *.list *.map decompile decompile.dSYM $(BOOTDSK)
+	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) \
+		$(ZTARGET) $(ZDSKIMAGE) *.list *.map decompile decompile.dSYM $(BOOTDSK)
 
-.PHONY: all os9 clean regen-gamedata diskcopy run decompile
+.PHONY: all os9 clean regen-gamedata diskcopy run decompile zmachine regen-zdata \
+	check-zdata test-zmachine zmachine-disk run-zmachine
