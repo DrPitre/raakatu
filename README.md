@@ -1,23 +1,21 @@
-# Raaka-Tu reference implementation and Z-machine source
+# Raaka-Tu Z-machine game and reference implementation
 
 This repository preserves and documents the 1982 Tandy Color Computer text
 adventure *Raaka-Tu*, originally written in 6809 assembly.
 
 ## Preferred game distribution
 
-The preferred place to obtain and play the packaged game is the
-[infocom-os9-port repository](https://github.com/rlucente-retro/infocom-os9-port),
-which bundles `raakatu.dat` with the native NitrOS-9 Infocom interpreter and
-includes it in the generated OS-9 disk image.
+This repository is the preferred place to obtain and play the game. The
+checked-in `raakatu.z3` is a ready-to-play Version 3 Z-machine story for
+Gargoyle, Frotz, and other compatible interpreters.
 
 The C implementation in this repository is retained for reference purposes
 only. It documents the original engine, provides a convenient behavioral
 oracle, and is used to verify that the Z-machine port produces the same full
 playthrough. It is not the preferred distributed version of the game.
 
-The repository also contains a standalone Inform 6 port targeting Version 3
-of Infocom's Z-machine. Version 3 is intentional: the native NitrOS-9 ZIP
-interpreter in `~/Projects/infocom-os9-port` runs V3 story files.
+The Inform 6 source intentionally targets Version 3 so the same story also
+runs with the native NitrOS-9 ZIP interpreter from `infocom-os9-port`.
 
 ## Files
 
@@ -38,6 +36,9 @@ interpreter in `~/Projects/infocom-os9-port` runs V3 story files.
 - `test_game.sh` — a minimal smoke-test script.
 - `full_playthrough.txt` — a narrated walkthrough achieving the maximum
   score (50/50), followed by the raw command sequence that produces it.
+- `raakatu.z3` — the ready-to-play Version 3 Z-machine story.
+- `raakatu-visual-playthrough.txt` — a complete interpreter transcript with
+  all 100 commands, status-line updates, and the final 50/50 score.
 - `zmachine/raakatu.inf` — the standalone Inform 6 V3 runtime. It interprets
   the same Raaka-Tu bytecode as the C port rather than replacing the game with
   Inform library rooms and actions.
@@ -66,16 +67,15 @@ Prerequisites:
 - The NitrOS-9 interpreter repository at `~/Projects/infocom-os9-port` for the
   real OS-9 target. Override `INFOCOM_OS9_PORT` if it is elsewhere.
 
-Build and test the story file:
+The ready-to-play `raakatu.z3` is checked in. Rebuild and test it with:
 
 ```
 make zmachine
 make test-zmachine
 ```
 
-This produces `raakatu.z3`. The test runs both engines through the full
-walkthrough and requires identical normalized output and a final score of
-50/50.
+The test runs both engines through the full walkthrough and requires identical
+normalized output and a final score of 50/50.
 
 To create a separate bootable disk without changing either checked-in disk
 image:

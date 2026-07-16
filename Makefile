@@ -102,7 +102,7 @@ regen-gamedata:
 
 clean:
 	rm -rf $(TARGET) $(TARGET).dSYM raakatu.o gamedata.o $(OS9TARGET) \
-		$(ZTARGET) $(ZDSKIMAGE) *.list *.map decompile decompile.dSYM $(BOOTDSK)
+		$(ZDSKIMAGE) *.list *.map decompile decompile.dSYM $(BOOTDSK)
 
 .PHONY: all os9 clean regen-gamedata diskcopy run decompile zmachine regen-zdata \
 	check-zdata test-zmachine zmachine-disk run-zmachine
