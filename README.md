@@ -3,6 +3,22 @@
 This repository preserves and documents the 1982 Tandy Color Computer text
 adventure *Raaka-Tu*, originally written in 6809 assembly.
 
+## Motivation
+
+*Raaka-Tu* was the first game I played on my friend's TRS-80 Color Computer
+in 1983. Its world existed entirely in text: a few lines of description, a
+command prompt, and the invitation to discover what the computer understood.
+Exploring the jungle and temple showed me how much atmosphere, mystery, and
+adventure could be created with words and a parser alone.
+
+That experience is why this project is more than a technical port. It is an
+effort to preserve the game as I remember it, understand how its original
+6809 implementation worked, and make it easy to play on modern systems. The
+annotated assembly, reference C implementation, Inform 6 source, automated
+playthrough, and ready-to-run Z-machine story all serve that goal: keeping an
+important early computing memory accessible without losing the character of
+the original game.
+
 ## Preferred game distribution
 
 This repository is the preferred place to obtain and play the game. The
